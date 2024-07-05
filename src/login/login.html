@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+</head>
+<body>
+    <h2>Login</h2>
+    <div id="login-form">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+        <br>
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+        <br>
+        <button onclick="submit()">Login</button>
+    </div>
+    <script>
+        async function sha256(message) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+            return hashHex;
+        }
+
+        async function submit() {
+            let username = document.getElementById("username").value;
+            let password = document.getElementById("password").value;
+            
+            password = await sha256(password)
+            console.log("Username:", username);
+            console.log("Password:", password);
+
+            let data = {
+                "username": username,
+                "password": password
+            }
+
+            let headers = {
+                "Content-type": "application/json; charset=UTF-8"
+            }
+
+            fetch("/login", {
+                method: "POST",
+                headers: headers,
+                body: JSON.stringify(data),
+            })
+            .then((response) => {
+                console.log(response);
+                if (response.redirected == true) {
+                    window.location.href = "/control_panel";
+                }
+            })
+        }
+    </script>
+</body>
+</html>
