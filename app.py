@@ -10,7 +10,7 @@ app.secret_key = 'your_secret_key'
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-manager = AccessManager()
+manager = AccessManager('access_manager.state')
 
 class User(UserMixin):
     def __init__(self, id):
@@ -64,6 +64,7 @@ def control_panel():
 
 # Define routes
 @app.route('/create_user', methods=['POST'])
+@login_required
 def create_user():
     data = request.json
     user_name = data.get('user_name')
@@ -75,6 +76,7 @@ def create_user():
         return jsonify({"error": str(e)}), 400
     
 @app.route('/delete_user', methods=['POST'])
+@login_required
 def delete_user():
     data = request.json
     user_name = data.get('user_name')
@@ -84,12 +86,30 @@ def delete_user():
     else:
         return jsonify({"error": error_message}), 400
     
-@app.route('/list_users')
-def list_users():
-    all_users = manager.list_users()
-    return jsonify({"message": all_users}), 200
+@app.route('/list_user', methods=["POST"])
+@login_required
+def list_user():
+    data = request.json
+    user_name = data.get('user_name')
+    success, error_message_or_user = manager.list_user(user_name)
+    if success:
+        return jsonify({"message": f"Listed all properties of user {user_name}", "user": error_message_or_user}), 200
+    else:
+        return jsonify({"error": error_message_or_user}), 400
+    
+@app.route('/list_group', methods=["POST"])
+@login_required
+def list_group():
+    data = request.json
+    group_name = data.get('group_name')
+    success, error_message_or_group = manager.list_group(group_name)
+    if success:
+        return jsonify({"message": f"Listed all properties of group {group_name}", "group": error_message_or_group}), 200
+    else:
+        return jsonify({"error": error_message_or_group}), 400
 
 @app.route('/create_group', methods=['POST'])
+@login_required
 def create_group():
     data = request.json
     group_name = data.get('group_name')
@@ -97,15 +117,54 @@ def create_group():
     return jsonify({"message": "Group created successfully"}), 201
 
 @app.route('/add_user_to_group', methods=['POST'])
+@login_required
 def add_user_to_group():
     data = request.json
     user_name = data.get('user_name')
     group_name = data.get('group_name')
-    success, error_message = manager.add_user_to_group(user_name, group_name)
+    success, message = manager.add_user_to_group(user_name, group_name)
     if success:
-        return jsonify({"message": "User added to group successfully"}), 201
+        return jsonify({"message": message}), 201
     else:
-        return jsonify({"error": error_message}), 400
+        return jsonify({"error": message}), 400
+    
+@app.route('/add_permissions_to_group', methods=['POST'])
+@login_required
+def add_permission_to_group():
+    data = request.json
+    group_name = data.get('group_name')
+    data_type = data.get('data_type')
+    data_ids = data.get('data_ids')
+
+    if "," in data_ids:
+        data_ids = data_ids.split(",")
+    else:
+        data_ids = [data_ids]
+    for data_id in data_ids:
+        success, message = manager.add_permission_to_group(group_name, (data_type, data_id.strip()))
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
+    
+@app.route('/remove_permissions_from_group', methods=['POST'])
+@login_required
+def remove_permissions_from_group():
+    data = request.json
+    group_name = data.get('group_name')
+    data_type = data.get('data_type')
+    data_ids = data.get('data_ids')
+    
+    if "," in data_ids:
+        data_ids = data_ids.split(",")
+    else:
+        data_ids = [data_ids]
+    for data_id in data_ids:
+        success, message = manager.remove_permission_from_group(group_name, (data_type, data_id.strip()))
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
 
 @app.route('/authorize_request', methods=['POST'])
 def authorize_request():
@@ -119,17 +178,19 @@ def authorize_request():
         return jsonify({"error": str(e)}), 400
 
 @app.route('/remove_user_from_group', methods=['POST'])
+@login_required
 def remove_user_from_group():
     data = request.json
     user_name = data.get('user_name')
     group_name = data.get('group_name')
-    try:
-        manager.remove_user_from_group(user_name, group_name)
-        return jsonify({"message": "User removed from group successfully"}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    success, message = manager.remove_user_from_group(user_name, group_name)
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
 
 @app.route('/authenticate_user', methods=['POST'])
+@login_required
 def authenticate_user():
     data = request.json
     print(data)
@@ -138,7 +199,19 @@ def authenticate_user():
     authenticated = manager.authenticate_user(user_name, password_hash)
     return jsonify({"authenticated": authenticated}), 200
 
-@app.route('/run_tests')
+@app.route('/delete_group', methods=['POST'])
+@login_required
+def delete_group():
+    data = request.json
+    group_name = data.get('group_name')
+    success, message = manager.delete_group(group_name)
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
+
+@app.route('/run_manager_test')
+@login_required
 def run_tests():
     debug = request.args.get("debug")=="True"
     if debug:
@@ -149,8 +222,8 @@ def run_tests():
     return output
 
 running_perf_tests = False
-
 @app.route('/run_perf_tests')
+@login_required
 def run_perf_tests():
     global running_perf_tests
     if running_perf_tests:

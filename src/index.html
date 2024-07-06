@@ -7,7 +7,6 @@
 
     <script type="text/javascript" src="src/notifications/notifications.js"></script>
     <script type="text/javascript" src="src/index.js"></script>
-    <script type="text/javascript" src="src/navbar/navbar.js"></script>
 
     <link rel="stylesheet" href="src/style.css" type="text/css"></link>
     <link rel="stylesheet" href="src/navbar/navbar.css" type="text/css"></link>
@@ -25,21 +24,25 @@
                 <br>
                 <div class="fancy-button blue-highlight dropdown-element" onclick="userExplorerPopup()">User explorer</div>
                 <div class="fancy-button green-highlight dropdown-element" onclick="createUserPopup()">Create User</div>
-                <div class="fancy-button red-highlight dropdown-element" onclick="editUserPopup()">Edit User</div>
                 <div class="fancy-button red-highlight dropdown-element" onclick="deleteUserPopup()">Delete User</div>
                 <br>
-                <div class="fancy-button blue-highlight dropdown-element" onclick="groupExplorer()">Group explorer</div>
+                <div class="fancy-button blue-highlight dropdown-element" onclick="groupExplorerPopup()">Group explorer</div>
                 <div class="fancy-button green-highlight dropdown-element" onclick="createGroupPopup()">Create Group</div>
                 <div class="fancy-button green-highlight dropdown-element" onclick="addUserToGroupPopup()">Add User to Group</div>
                 <div class="fancy-button green-highlight dropdown-element" onclick="addPermissionToGroupPopup()">Add Permission To Group</div>
                 <div class="fancy-button red-highlight dropdown-element" onclick="removeUserFromGroupPopup()">Remove User from Group</div>
                 <div class="fancy-button red-highlight dropdown-element" onclick="removePermissionFromGroupPopup()">Remove Permission From Group</div>
-                <div class="fancy-button red-highlight dropdown-element" onclick="deletGroupPopup()">Delete Group</div>
+                <div class="fancy-button red-highlight dropdown-element" onclick="deleteGroupPopup()">Delete Group</div>
                 <br>
             </div>
         </div>
 
         <h1 id="title">Admin Control Panel</h1>
+    </div>
+
+    <div class="visualizer" id="visualizer">
+        <div id="container"></div>
+        <div class="close-button red-highlight" onclick="closeVisualizer()">Close</div>
     </div>
 
     <div id="popup-container"></div> <!-- This is where the form will be inserted -->

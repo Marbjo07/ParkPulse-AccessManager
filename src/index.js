@@ -33,26 +33,36 @@ function readFormFields() {
 }
 
 function createPopup(name, inputFields, onSubmitFunction) {
+
+    // Remove previous popup if any
+    removePopup();
+    if (name != "User Explorer") {
+        closeVisualizer();
+    }
     // Create the form element
-    var form = document.createElement('form');
+    let form = document.createElement('form');
     form.id = "popup-window";
     form.addEventListener("submit", onSubmitFunction);
 
-    var formContent = fillOutTemplateForm(name, inputFields);
+    let formContent = fillOutTemplateForm(name, inputFields);
 
     // Set the innerHTML of the form
     form.innerHTML = formContent;
 
     // Append the form to the container
-    var container = document.getElementById('popup-container');
+    let container = document.getElementById('popup-container');
     container.appendChild(form);
 
     form.style.display = 'block';
 }
 
 function removePopup() {
-    var container = document.getElementById('popup-container');
+    let container = document.getElementById('popup-container');
     container.innerHTML = "";
+    
+    let visualizer = document.getElementById('visualizer');
+    visualizer.style.visibility = 'hidden';
+
 }
 
 async function defaultRequest(method, endpoint, body) {
@@ -68,19 +78,18 @@ async function defaultRequest(method, endpoint, body) {
         delete data.body;
     }
 
-    return await fetch(`http://127.0.0.1:5050/${endpoint}`, data)
-    .then((response) => {
-        return response.json();
-    })
-    .then((data) => {
-        if (data.message != null) {
-            createToast("success", data.message);
-        }
-        return data;
-    })
-    .catch((error) => {
-        console.log(error);
-    })
+    let response = await fetch(`http://127.0.0.1:5050/${endpoint}`, data);
+
+    let response_data = await response.json();
+
+    if (response.ok) {
+        createToast("success", response_data.message);
+    }
+    else {
+        createToast("error", response_data.error);
+    }
+
+    return response_data;
 }
 
 
@@ -89,7 +98,7 @@ function endpointHandler(endpoint) {
     let fields = readFormFields();
     removePopup();
     defaultRequest("POST", endpoint, fields);
-}   
+}
 
 function endpointHandlerWithConfirmation(endpoint, confirmationPrompt, confirmationDataField) {
     let fields = readFormFields();
@@ -101,17 +110,170 @@ function endpointHandlerWithConfirmation(endpoint, confirmationPrompt, confirmat
     }
 }
 
-function userExplorerPopup() {
-    defaultRequest("GET", "/list_users", {})
+function visualizeUsers(data) {
+    const visualizer = document.getElementById('visualizer');
+    visualizer.style.visibility = 'visible';
+
+    const userContainer = document.getElementById('container');
+    data.users.forEach(userStr => {
+        const user = JSON.parse(userStr);
+
+        const userDiv = document.createElement('div');
+        userDiv.className = 'user';
+
+        const userNameDiv = document.createElement('div');
+        userNameDiv.className = 'user-name';
+        userNameDiv.textContent = `User Name: ${user.user_name}`;
+
+        const groupsDiv = document.createElement('div');
+        groupsDiv.className = 'groups';
+        groupsDiv.textContent = 'Groups: ';
+        user.groups.forEach(group => {
+            const groupDiv = document.createElement('span');
+            groupDiv.className = 'group';
+
+            groupDiv.textContent = group;
+            groupsDiv.appendChild(groupDiv);
+        });
+
+        userDiv.appendChild(userNameDiv);
+        userDiv.appendChild(groupsDiv);
+        userContainer.appendChild(userDiv);
+    });
+}
+
+function visualizeUser(data) {
+    data = JSON.parse(data);
+    const visualizerContainer = document.getElementById('visualizer');
+    visualizerContainer.style.visibility = "visible"
+
+    // Create the container div
+    const containerDiv = document.getElementById('container');
+    
+    // Create and append the user name
+    const userName = document.createElement('h2');
+    userName.className = "name-header"
+    userName.textContent = `User Name: ${data.user_name}`;
+    containerDiv.appendChild(userName);
+
+    const groupContainer = document.createElement('div');
+    groupContainer.className = 'group-container';
+    console.log(data.groups);
+    
+    data.groups.forEach(groupStr => {
+        const group = JSON.parse(groupStr);
+
+        // Create group div
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'group';
+
+        // Add group name
+        const groupName = document.createElement('p');
+        groupName.innerHTML = `<strong>Group Name:</strong></br>${group.group_name}`;
+        groupName.className = 'group-name';
+        groupDiv.appendChild(groupName);
+
+        // Add permissions
+        const permissions = document.createElement('p');
+        const permissionsContent = Object.entries(group.permissions).map(([key, value]) => {
+            return `<strong>${key}:</strong> ${value.join(', ') || 'None'}`;
+        }).join('<br>');
+        permissions.innerHTML = `<strong>Permissions:</strong><br>${permissionsContent || 'None'}`;
+        groupDiv.appendChild(permissions);
+
+        groupContainer.appendChild(groupDiv);
+    });
+    containerDiv.appendChild(groupContainer);
+
+}
+
+function visualizeGroup(data) {
+    data = JSON.parse(data);
+    const visualizerContainer = document.getElementById('visualizer');
+    visualizerContainer.style.visibility = "visible"
+
+    // Create the container div
+    const containerDiv = document.getElementById('container');
+    
+    // Create and append the user name
+    const groupName = document.createElement('h2');
+    groupName.className = "name-header"
+    groupName.textContent = `Group Name: ${data.group_name}`;
+    containerDiv.appendChild(groupName);
+
+    const groupContainer = document.createElement('div');
+    groupContainer.className = 'group-container';
+
+    // Add permissions
+    const permissions = document.createElement('p');
+    console.log(data.permissions)
+    const permissionsContent = Object.entries(data.permissions).map(([key, value]) => {
+        return `<strong>${key}:</strong> ${value.join(', ') || 'None'}`;
+    }).join('<br>');
+    permissions.innerHTML = `<strong>Permissions:</strong><br>${permissionsContent || 'None'}`;
+    groupContainer.appendChild(permissions);
+
+    // Add permissions
+    const members = document.createElement('p');
+    members.innerHTML = `<strong>Members:</strong> ${data.members.join(', ') || 'None'}`;
+    groupContainer.appendChild(members);
+
+    containerDiv.appendChild(groupContainer);
+}
+
+
+function closeVisualizer() {
+    const visualizer = document.getElementById('visualizer');
+    visualizer.style.visibility = 'hidden';
+
+    const userContainer = document.getElementById('container');
+    userContainer.innerHTML = "";
+}
+
+async function userExplorerPopup() {
+    createPopup(
+        "User Explorer",
+        [
+            { id: "user_name", prompt: "Username" },
+        ],
+        () => {
+            let fields = readFormFields();
+            removePopup();
+            defaultRequest("POST", "/list_user", { "user_name": fields.user_name })
+                .then((response) => {
+                    console.log(response.user);
+                    visualizeUser(response.user)
+                });
+        }
+    );
+
+}
+async function groupExplorerPopup() {
+    createPopup(
+        "Group Explorer",
+        [
+            { id: "group_name", prompt: "Group" },
+        ],
+        () => {
+            let fields = readFormFields();
+            removePopup();
+            defaultRequest("POST", "/list_group", { "group_name": fields.group_name })
+                .then((response) => {
+                    console.log(response.group);
+                    visualizeGroup(response.group)
+                });
+        }
+    );
+
 }
 
 function createUserPopup() {
     createPopup(
-        "Create User", 
+        "Create User",
         [
-            {id: "user_name", prompt: "Username"},
-            {id: "password_hash", prompt: "Password"},
-        ], 
+            { id: "user_name", prompt: "Username" },
+            { id: "password_hash", prompt: "Password" },
+        ],
         () => {
             endpointHandler("/create_user")
         }
@@ -120,10 +282,10 @@ function createUserPopup() {
 
 function deleteUserPopup() {
     createPopup(
-        "Delete User", 
+        "Delete User",
         [
-            {id: "user_name", prompt: "User"},
-        ], 
+            { id: "user_name", prompt: "User" },
+        ],
         () => {
             endpointHandlerWithConfirmation("/delete_user", "Are you sure you want to delete ", "user_name");
         }
@@ -133,10 +295,10 @@ function deleteUserPopup() {
 
 function createGroupPopup() {
     createPopup(
-        "Create Group", 
+        "Create Group",
         [
-            {id: "group_name", prompt: "Group"},
-        ], 
+            { id: "group_name", prompt: "Group" },
+        ],
         () => {
             endpointHandler("/create_group")
         }
@@ -146,10 +308,10 @@ function createGroupPopup() {
 
 function deleteGroupPopup() {
     createPopup(
-        "Delete Group", 
+        "Delete Group",
         [
-            {id: "group_name", prompt: "Group"},
-        ], 
+            { id: "group_name", prompt: "Group" },
+        ],
         () => {
             endpointHandlerWithConfirmation("/delete_group", "Are you sure you want to delete ", "group_name");
         }
@@ -159,13 +321,70 @@ function deleteGroupPopup() {
 
 function addUserToGroupPopup() {
     createPopup(
-        "Add User to Group", 
+        "Add User to Group",
         [
-            {id: "user_name", prompt: "User"},
-            {id: "group_name", prompt: "Group"},
-        ], 
+            { id: "user_name", prompt: "User" },
+            { id: "group_name", prompt: "Group" },
+        ],
         () => {
             endpointHandler("/add_user_to_group");
+        }
+    );
+}
+
+
+function addPermissionToGroupPopup() {
+    createPopup(
+        "Add Permission to Group",
+        [
+            { id: "group_name", prompt: "Group" },
+            { id: "data_type", prompt: "Data Type" },
+            { id: "data_ids", prompt: "Data Ids" },
+        ],
+        () => {
+            endpointHandler("/add_permissions_to_group");
+        }
+    );
+}
+
+
+function removeUserFromGroupPopup() {
+    createPopup(
+        "Remove User from Group",
+        [
+            { id: "group_name", prompt: "Group" },
+            { id: "user_name", prompt: "Group" },
+        ],
+        () => {
+            endpointHandler("/remove_user_from_group");
+        }
+    );
+}
+
+
+function removePermissionFromGroupPopup() {
+    createPopup(
+        "Remove Permission from Group",
+        [
+            { id: "group_name", prompt: "Group" },
+            { id: "data_type", prompt: "Data Type" },
+            { id: "data_ids", prompt: "Data Ids" },
+        ],
+        () => {
+            endpointHandler("/remove_permissions_from_group");
+        }
+    );
+}
+
+
+function deleteGroupPopup() {
+    createPopup(
+        "Delete Group",
+        [
+            { id: "group_name", prompt: "Group" },
+        ],
+        () => {
+            endpointHandlerWithConfirmation("/delete_group", "Are you sure you want to delete ", "group_name");
         }
     );
 }

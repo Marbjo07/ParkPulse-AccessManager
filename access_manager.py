@@ -1,8 +1,12 @@
-import logging
+import os
 import sys
-from typing import Dict, Tuple
 import time
+import json
 import random
+import pickle
+import logging
+import functools
+from typing import Dict, Tuple
 
 # Define color codes
 LOG_COLORS = {
@@ -35,6 +39,8 @@ def setup_custom_logger(name):
     logger.addHandler(screen_handler)
     return logger
 
+
+
 # Organizes different accesses and premisions
 class Group():
     def __init__(self, group_name:str, permissions:Dict[str, list[str]]) -> None:
@@ -45,7 +51,8 @@ class Group():
     def is_allowed_access(self, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
 
-        assert data_type in self.permissions, f'data_type "{data_type}" not in self.permissions "{self.permissions}"'
+        if data_type not in self.permissions:
+            return False
 
         permissions_for_data_type = self.permissions[data_type]
         return data_id in permissions_for_data_type
@@ -67,16 +74,47 @@ class Group():
         self.members.append(user_name)
 
     def remove_member(self, user_name:str) -> None:
-        self.members.remove(user_name)
+        if user_name in self.members:
+            self.members.remove(user_name)
+
+    def add_permission(self, permission:Tuple[str, str]) -> None:
+        data_type, data_id = permission
+        # update existing data_type if it exist
+        if data_type in self.permissions:
+            if data_id not in self.permissions[data_type]:
+                self.permissions[data_type].append(data_id)
+        else:
+            # create new data_type 
+            new_permission = {data_type:[data_id]}
+            self.permissions.update(new_permission)
+    
+    def remove_permission(self, permission:Tuple[str, str]) -> None:
+        data_type, data_id = permission
+
+        if data_type not in self.permissions:
+            return
+
+        if data_id not in self.permissions[data_type]:
+            return
+        
+        self.permissions[data_type].remove(data_id)
+        if len(self.permissions[data_type]) == 0:
+            del self.permissions[data_type]
 
     def is_member(self, user_name:str) -> bool:
         return user_name in self.members
-            
+    
+    def toJSON(self) -> str:
+        return json.dumps({
+            "group_name": self.group_name,
+            "permissions": self.permissions
+        })
+    
 class User():
     def __init__(self, user_name:str, password_hash:str) -> None:
         self.user_name: str = user_name
         self.password_hash: str = password_hash
-        self.groups: list[Group] = []
+        self.groups: list[str] = []
 
     def check_password(self, password_hash:str) -> bool:
         return self.password_hash == password_hash
@@ -84,55 +122,147 @@ class User():
     def join_group(self, group_name:str) -> None:
         self.groups.append(group_name)
 
-    def is_in_group(self, group_name:str) -> bool:
+    def quit_group(self, group_name:str) -> None:
+        if group_name in self.groups:
+            self.groups.remove(group_name)
+
+    def in_group(self, group_name:str) -> bool:
         return group_name in self.groups
-            
-        
+    
+    def toJSON(self) -> str:
+        return json.dumps({
+            "user_name": self.user_name,
+            "groups": self.groups,
+        })            
+
 class AccessManager():
-    def __init__(self, name:str="AccessManager") -> None:
+    def __init__(self, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", init_log_level=logging.INFO) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
         self.logger = setup_custom_logger(name)
+        self.set_logging_level(init_log_level)
 
-    def create_user(self, user_name:str, password_hash:str) -> None:
-        if user_name in self.users:
-            self.logger.error(f'Tried to create existing user "{user_name}"')
-            return
+        if state_file_path != None and load_state:
+            self.load_state(state_file_path)
+        
+        self.state_file_path = state_file_path
+
+
+    def save_state_after(method):
+        @functools.wraps(method)
+        def wrapper(self, *args, **kwargs):
+            result = method(self, *args, **kwargs)
+            if self.state_file_path != None:
+                self.save_state(self.state_file_path)
+            return result
+        return wrapper
+
+    @save_state_after
+    def create_user(self, user_name:str, password_hash:str) -> Tuple[bool, str]:
+        if self.user_exists(user_name):
+            error_message = f'Tried to create existing user "{user_name}"'
+            self.logger.error(error_message)
+            return False, error_message
         new_user = User(user_name, password_hash)
-
+ 
         self.users.update({user_name: new_user})
-        self.logger.info(f'Created user "{user_name}".')
 
-    def delete_user(self, user_name:str) -> bool:
-        if user_name not in self.users:
+        success_message = f'Created user "{user_name}".'
+        self.logger.info(success_message)
+        return True, success_message
+
+    @save_state_after
+    def delete_user(self, user_name:str) -> Tuple[bool, str]:
+        if not self.user_exists(user_name):
             error_message = f'Tried to delete non-existent user "{user_name}"'
             self.logger.error(error_message)
             return False, error_message
         
-        for group_name in self.users[user_name].groups:
+        user = self.users[user_name]
+
+        for group_name in user.groups:
             group = self.groups[group_name]
 
             if group.is_member(user_name):
                 group.remove_member(user_name)
 
         del self.users[user_name]
+        success_message = f'Deleted user "{user_name}".'
+        self.logger.warning(success_message)
+        return True, success_message
+    
+    
+    @save_state_after
+    def delete_group(self, group_name:str) -> Tuple[bool, str]:
+        if not self.group_exists(group_name):
+            error_message = f'Tried to delete non-existent group "{group_name}"'
+            self.logger.error(error_message)
+            return False, error_message
+        
+        group = self.groups[group_name]
 
-        return True, ""
+        for user_name in group.members:
+            user = self.users[user_name]
+            # can quit non-joined groups
+            user.quit_group(group_name)
+
+        del self.groups[group_name]
+        success_message = f'Deleted group "{user_name}".'
+        self.logger.warning(success_message)
+        return True, success_message
     
     def list_users(self) -> list[str]:
-        self.logger.info(f'listing all {len(self.users.keys())} users')
-        user_strings = []
-        for user_name in self.users.keys():
-            user = self.users[user_name]
-
-            user_string = user_name + " | " +  str(user.groups)
-            user_strings.append(user_string)
-
-        return user_strings
-            
+        self.logger.info(f'Listing all {len(self.users.keys())} users')
+        users = list(self.users.values())
+        users_json_dump = [user.toJSON() for user in users]
+        return users_json_dump
     
+    def list_user(self, user_name:str) -> Tuple[bool, str]:
+        if not self.user_exists(user_name):
+            error_message = f'Tried to list properties of non-existet user "{user_name}"'
+            self.logger.warning(error_message)
+            return False, error_message
+        
+        self.logger.info(f'Listing all properties of user "{user_name}"')
+        user = self.users[user_name]
+
+        users_json_dump = json.dumps({
+            "user_name": user_name,
+            "groups":[self.groups[group].toJSON() for group in user.groups]
+        })
+
+        return True, users_json_dump
+    
+    def list_group(self, group_name:str) -> Tuple[bool, str]:
+        if not self.group_exists(group_name):
+            error_message = f'Tried to list properties of non-existet group "{group_name}"'
+            self.logger.warning(error_message)
+            return False, error_message
+        
+        self.logger.info(f'Listing all properties of group "{group_name}"')
+        group = self.groups[group_name]
+
+        group_json_dump = json.dumps({
+            "group_name": group_name,
+            "members": group.members,
+            "permissions": group.permissions
+        })
+
+        return True, group_json_dump
+    
+    def user_exists(self, user_name:str) -> bool:
+        return user_name in self.users
+    
+    def group_exists(self, group_name:str) -> bool:
+        return group_name in self.groups
+    
+    @save_state_after
     def create_group(self, group_name:str, permissions:Dict[str, list[str]]) -> None:
+        if self.group_exists(group_name):
+            self.logger.warning(f'Tried to create existing group "{group_name}"')
+            return
+        
         new_group = Group(group_name, permissions)
 
         self.groups.update({group_name: new_group })
@@ -142,64 +272,116 @@ class AccessManager():
         else:
             self.logger.info(f'Created group "{group_name}". Permissions: {new_group.count_permissions()}')
 
+    @save_state_after
     def add_user_to_group(self, user_name:str, group_name:str) -> bool:
-        if group_name not in self.groups:
-            error_message = f'Group "{group_name}" does not exist'
+        if not self.user_exists(user_name):
+            error_message = f'Tried to add non-existent user "{user_name}" to group {group_name}'
+            self.logger.error(error_message)
+            return False, error_message
+
+        if not self.group_exists(group_name):
+            error_message = f'Group "{group_name}" does not exist, could not add user "{user_name}"'
             self.logger.error(error_message)
             return False, error_message
         
         self.users[user_name].join_group(group_name)
-        self.groups[group_name].add_member(user_name+"1")
-        self.logger.info(f'Added user "{user_name}" to group "{group_name}"')
+        self.groups[group_name].add_member(user_name)
 
-        return True, ""
+        success_message = f'Added user "{user_name}" to group "{group_name}"'
+        self.logger.info(success_message)
+
+        return True, success_message
     
-    def remove_user_from_group(self, user_name:str, group_name:str) -> None:
-        if user_name not in self.users:
-            self.logger.error(f'Tried to remove non-existent user "{user_name}"')
-            return
+    @save_state_after
+    def add_permission_to_group(self, group_name:str, permission:Tuple[str, str]) -> Tuple[bool, str]:
+        if not self.group_exists(group_name):
+            error_message = f'Group "{group_name}" does not exist, could not add permission "{permission}"'
+            self.logger.error(error_message)
+            return False, error_message
 
-        if group_name not in self.groups:
-            self.logger.error(f'Tried to remove user "{user_name}" from non-existent group {group_name}')
-            return
+        group = self.groups[group_name]
+
+        if group.is_allowed_access(permission):
+            error_message = f'Group "{group_name}" already has access to "{permission}"'
+            self.logger.warning(error_message)
+            return False, error_message
+
+        group.add_permission(permission)
+
+        success_message = f'Added permission "{permission}" to group "{group_name}"'
+        self.logger.info(success_message)
+
+        return True, success_message
+    
+    @save_state_after
+    def remove_permission_from_group(self, group_name:str, permission:Tuple[str, str]) -> Tuple[bool, str]:
+        if not self.group_exists(group_name):
+            error_message = f'Group "{group_name}" does not exist, could not remove permission "{permission}"'
+            self.logger.error(error_message)
+            return False, error_message
+
+        group = self.groups[group_name]
+        # check if group even is allowed access
+        if not group.is_allowed_access(permission):
+            error_message = f'Group "{group_name}" does not have access to "{permission}"'
+            self.logger.warning(error_message)
+            return False, error_message
+        
+        group.remove_permission(permission)
+
+        success_message = f'Removed permission "{permission}" from group "{group_name}"'
+        self.logger.warning(success_message)
+
+        return True, success_message
+    
+    @save_state_after
+    def remove_user_from_group(self, user_name:str, group_name:str) -> Tuple[bool, str]:
+        if not self.user_exists(user_name):
+            error_message = f'Tried to remove non-existent user "{user_name}"'
+            self.logger.error(error_message)
+            return False, error_message
+
+        if not self.group_exists(group_name):
+            error_message = f'Tried to remove user "{user_name}" from non-existent group {group_name}'
+            self.logger.error(error_message)
+            return False, error_message
         
         user = self.users[user_name]
         group = self.groups[group_name]
 
-        if not user.is_in_group(group_name):
-            self.logger.warning(f'User {user_name} is not member of group {group_name}')
-            return
+        if not user.in_group(group_name):
+            error_message = f'User {user_name} is not member of group {group_name}'
+            self.logger.warning(error_message)
+            return False, error_message
         
-        if user.is_in_group(group_name) != group.is_member(user_name):
-            self.logger.critical(f'Mismatch in user "{user_name}" and group "{group_name}" member data! User groups: "{user.groups}". Group members: "{group.members}"')
-            return 
+        if user.in_group(group_name) != group.is_member(user_name):
+            error_message = f'Mismatch in user "{user_name}" and group "{group_name}" member data! User groups: "{user.groups}". Group members: "{group.members}"'
+            self.logger.critical(error_message)
+            return False, error_message
         
         self.groups[group_name].remove_member(user_name)
         self.users[user_name].groups.remove(group_name)
 
-    def authorize_request(self, user_name:str, request:Tuple[str, str]):
+        success_message = f'Removed user "{user_name} from group "{group_name}"'
+        self.logger.warning(success_message)
+        return True, success_message
+
+    def authorize_request(self, user_name:str, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
-        if user_name not in self.users:
+        if not self.user_exists(user_name):
             self.logger.error(f'Tried to authorize request for non-existent user "{user_name}"')
             return False
         user = self.users[user_name]
 
         authorized = False
         for group_name in user.groups:
-            if group_name not in self.groups:
+            if not self.group_exists(group_name):
                 self.logger.error(f'User "{user_name}" is member of non-existent group "{group_name}"')  
                 continue
 
             group = self.groups[group_name]
 
-            # catch assertion thrown in group, missing data_type
-            try:
-                is_allowed_access = group.is_allowed_access(request)
-            except AssertionError:
-                self.logger.error(f'data_type "{data_type}" not found in group')
-                continue
-
-            if is_allowed_access:
+            if group.is_allowed_access(request):
                 authorized = True
                 self.logger.info(f'Group "{group_name}" authorized "{user_name}" to "{data_id}"')
                 break
@@ -210,7 +392,7 @@ class AccessManager():
         return authorized
     
     def authenticate_user(self, user_name:str, password_hash:str) -> bool:
-        if user_name not in self.users:
+        if not self.user_exists(user_name):
             self.logger.warning(f'User "{user_name}" not found, unable to authenticate')
             return False
 
@@ -218,21 +400,55 @@ class AccessManager():
             self.logger.info(f'Authenticated user "{user_name}" with password hash "{password_hash}"')
             return True
         else:
-            self.logger.warning(f'Authentication faild for user "{user_name}"')
+            self.logger.warning(f'Authentication faild for user "{user_name}" with password hash "{password_hash}"')
             return False
 
     def set_logging_level(self, logging_level) -> None:
         self.logger.setLevel(logging_level)
 
     def is_user_in_group(self, user_name:str, group_name:str) -> bool:
-        if group_name not in self.groups:
+        if not self.group_exists(group_name):
             self.logger.error(f'Group "{group_name}" does not exist therefore is user "{user_name}" not member')
+            return False
+        
+        if not self.user_exists(user_name):
+            self.logger.error(f'User "{user_name}" does not exists therefore is not in group "{group_name}"')
             return False
         
         group = self.groups[group_name]
 
         return group.is_member(user_name)
     
+    def save_state(self, file_path: str) -> None:
+        """Saves the current state of users and groups to a file."""
+        try:
+            with open(file_path, 'wb') as file:
+                pickle.dump((self.users, self.groups), file)
+            self.logger.debug(f'Successfully saved state to {file_path}')
+        except Exception as e:
+            self.logger.error(f'Failed to save state: {str(e)}')
+
+    def load_state(self, file_path: str) -> None:
+        """Loads the state of users and groups from a file."""
+        try:
+            if not os.path.exists(file_path):
+                assert False, "File does not exist"
+
+            with open(file_path, 'rb') as file:
+                self.users, self.groups = pickle.load(file)
+            self.logger.info(f'Successfully loaded state from {file_path}')
+            self.logger.info(f'All users: {list(self.users.keys())}')
+            self.logger.info(f'Total number of users: {len(self.users.keys())}')
+            self.logger.info(f'All groups: {list(self.groups.keys())}')
+            self.logger.info(f'Total number of groups: {len(self.groups.keys())}')
+        except Exception as e:
+            self.logger.critical(f'Failed to load state: {str(e)}')
+
+    def delete_logger(self) -> None:
+        self.logger.critical(f'Logger deletion called!')
+        for handler in self.logger.handlers[:]:
+            self.logger.removeHandler(handler)
+
 
 # Utility functions for colored text
 def format_results(result, message, use_emoji=True):
@@ -241,11 +457,11 @@ def format_results(result, message, use_emoji=True):
     else:
         emoji = ""
     color = "green" if result else "red"
-    return f'<span style="color:{color}" > {emoji} </span> <h4 style="display: inline;">{message}</h4> <br>'
+    return f'<div><span style="color:{color}" > {emoji} </span> <h4 style="display: inline;">{message}</h4> </div>'
 
 # Test cases for AccessManager
 def test_access_manager(debug:bool):
-    manager = AccessManager(name="AccessManagerTest")
+    manager = AccessManager(state_file_path="access_manager_test.state", load_state=False, name="AccessManagerTest")
     manager.set_logging_level(logging.DEBUG if debug else logging.CRITICAL)
 
     start_time = time.time()
@@ -255,7 +471,7 @@ def test_access_manager(debug:bool):
     jack_password_hash = "passwsord2"
     admin_password_hash ="password3"
     
-    output = ""
+    output = '<div style="display:flex;flex-wrap:wrap;align-content:center;flex-direction: column;">'
     # Test creating users
     try:
         manager.create_user("john", john_password_hash)
@@ -287,13 +503,16 @@ def test_access_manager(debug:bool):
     output += format_results(manager.authorize_request("jack", ('cities', 'stockholm')) == False, "Authorization test before adding to group passed for 'jack'")
     
     # Test adding users to the group
-    try:
-        manager.add_user_to_group("john", "elaway-sweden")
-        manager.add_user_to_group("jack", "elaway-sweden")
+    success, message = manager.add_user_to_group("john", "elaway-sweden")
+    if manager.is_user_in_group("john", "elaway-sweden"):
         output += format_results(True, "Add users to group test passed")
-    except Exception as e:
-        output += format_results(False, f"Add users to group test failed: {e}")
-    
+    else:
+        output += format_results(False, f"Add users to group test failed: {message}")
+    success, message = manager.add_user_to_group("jack", "elaway-sweden")
+    if manager.is_user_in_group("jack", "elaway-sweden"):
+        output += format_results(True, "Add users to group test passed")
+    else:
+        output += format_results(False, f"Add users to group test failed: {message}")
     # Verify that users are added to the group
     output += format_results(manager.is_user_in_group("john", "elaway-sweden"), "Verify 'john' added to 'elaway-sweden'")
     output += format_results(manager.is_user_in_group("jack", "elaway-sweden"), "Verify 'jack' added to 'elaway-sweden'")
@@ -307,6 +526,11 @@ def test_access_manager(debug:bool):
     manager.add_user_to_group("john", "non-existent-group")
     output += format_results(not manager.is_user_in_group("john", "non-existent-group"), "Add user to non-existent group should fail but passed")
     
+    # Test adding a non-existent user to a group
+    manager.add_user_to_group("non-existent-user", "elaway-sweden")
+    output += format_results(not manager.is_user_in_group("non-existent-user", "elaway-sweden"), "Add non-existent user to group should fail but passed")
+    
+    
     # Test creating a group with overlapping permissions
     try:
         manager.create_group("elaway-norway", {'cities': ['oslo', 'bergen', 'trondheim']})
@@ -319,11 +543,11 @@ def test_access_manager(debug:bool):
     output += format_results(manager.groups["elaway-norway"].permissions == {'cities': ['oslo', 'bergen', 'trondheim']}, "Verify 'elaway-norway' group permissions")
     
     # Test adding a user to multiple groups
-    try:
-        manager.add_user_to_group("john", "elaway-norway")
+    success, message = manager.add_user_to_group("john", "elaway-norway")
+    if manager.is_user_in_group("john", "elaway-norway"):
         output += format_results(True, "Add user to multiple groups test passed")
-    except Exception as e:
-        output += format_results(False, f"Add user to multiple groups test failed: {e}")
+    else:
+        output += format_results(False, f"Add user to multiple groups test failed: {message}")
     
     # Verify that user is added to multiple groups
     output += format_results(manager.is_user_in_group("john", "elaway-norway"), "Verify 'john' added to 'elaway-norway'")
@@ -396,25 +620,67 @@ def test_access_manager(debug:bool):
     # Test empty password
     output += format_results(not manager.authenticate_user("john", ""), "Authentication failed for empty password")
 
+    # Test deleting an existing user
+    success, message = manager.delete_user("john")
+    if success:
+        output += format_results(True, f"Delete existing user 'john' test passed: {message}")
+    else:
+        output += format_results(False, f"Delete existing user 'john' test failed")
+    
+    output += format_results("john" not in manager.users, "Verify 'john' is deleted")
+
+    # Test deleting a non-existent user
+    success, message = manager.delete_user("non-existent-user")
+    if not success:
+        output += format_results(True, f"Delete non-existent user test passed: {message}")
+    else:
+        output += format_results(False, f"Delete non-existent user test failed")
+
+    # Test deleting a user and ensuring removal from groups
+    
+    manager.create_user("emma", "passord4")
+    manager.add_user_to_group("emma", "elaway-sweden")
+    success, message = manager.delete_user("emma")
+    if success:
+        output += format_results(True, f"Delete user 'emma' from group test passed: {message}")
+    else:
+        output += format_results(False, f"Delete user 'emma' from group test failed")
+
+    output += format_results("emma" not in manager.users, "Verify 'emma' is deleted")
+    output += format_results(not manager.is_user_in_group("emma", "elaway-sweden"), "Verify 'emma' is removed from 'elaway-sweden'")
+
+
+    # Test authentication with a deleted user
+    success = manager.authenticate_user("emma", "passord4")
+    if not success:
+        output += format_results(True, f"Authentication failed for deleted user")
+    else:
+        output += format_results(False, f"Deleted user emma authenticated")
+    
+
     output += format_results(True, "All tests completed!", use_emoji=False)
 
     end_time = time.time()
     output += f"Tests complete in {end_time - start_time:f}s"
-    for handler in manager.logger.handlers[:]:
-        manager.logger.removeHandler(handler)
+    output += "</div>"
+
+    manager.delete_logger()
     return output
 
 # Performance tests for AccessManager
 def performance_test_access_manager(debug):
+    
+    performance_test_log_level = logging.INFO if debug else logging.CRITICAL
     manager = AccessManager(name="AccessManagerPerformanceTest")
-    manager.set_logging_level(logging.INFO if debug else logging.CRITICAL)
+    manager.set_logging_level(performance_test_log_level)
 
     output = ""
 
     num_users  = 10000
     num_groups = 10000
     num_cities = 10000
-    
+    num_reboots = 10
+
     # Performance test for creating users
     start_time = time.time()
     for i in range(num_users):
@@ -441,9 +707,20 @@ def performance_test_access_manager(debug):
     for i in range(num_users):
         manager.authorize_request(f"user{i}", ('cities', 'city0'))
     end_time = time.time()
+
     output += f"<h4>Time taken to authorize {num_users} requests: {end_time - start_time:.4f} seconds</h4>"
-    for handler in manager.logger.handlers[:]:
-        manager.logger.removeHandler(handler)
+
+    manager.save_state("perf_test_save.state")
+    # Performance test for rebooting
+    start_time = time.time()
+    for i in range(num_reboots):
+        rebooted_manager = AccessManager(state_file_path="perf_test_save.state", name="AccessManagerPerformanceTest", init_log_level=performance_test_log_level)
+        rebooted_manager.set_logging_level(performance_test_log_level)
+        rebooted_manager.delete_logger()
+        end_time = time.time()
+
+    output += f"<h4>Time taken to reboot {num_reboots} times: {end_time - start_time:.4f} seconds</h4>"
+    manager.delete_logger()
     return output
 
     
