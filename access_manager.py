@@ -11,7 +11,7 @@ import requests
 import functools
 from typing import Dict, Tuple
 
-BACKEND_SERVER_LOCATION = "http://localhost:5000"
+BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
 
 # Define color codes
 LOG_COLORS = {
