@@ -1,3 +1,5 @@
+const ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
+
 async function sha256(message) {
     const encoder = new TextEncoder();
     const data = encoder.encode(message);
@@ -88,7 +90,7 @@ async function defaultRequest(method, endpoint, body) {
         delete data.body;
     }
 
-    let response = await fetch(`http://127.0.0.1:5050/${endpoint}`, data);
+    let response = await fetch(`${BACKEND_SERVER_LOCATION}/${endpoint}`, data);
 
     let response_data = await response.json();
 
