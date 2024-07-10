@@ -4,9 +4,14 @@ import time
 import json
 import random
 import pickle
+import hashlib
 import logging
+import secrets
+import requests
 import functools
 from typing import Dict, Tuple
+
+BACKEND_SERVER_LOCATION = "http://localhost:5000"
 
 # Define color codes
 LOG_COLORS = {
@@ -70,12 +75,12 @@ class Group():
             num_data_ids_per_permission.update({data_type:len(self.permissions[data_type])})
         return num_data_ids_per_permission
     
-    def add_member(self, user_name:str) -> None:
-        self.members.append(user_name)
+    def add_member(self, username:str) -> None:
+        self.members.append(username)
 
-    def remove_member(self, user_name:str) -> None:
-        if user_name in self.members:
-            self.members.remove(user_name)
+    def remove_member(self, username:str) -> None:
+        if username in self.members:
+            self.members.remove(username)
 
     def add_permission(self, permission:Tuple[str, str]) -> None:
         data_type, data_id = permission
@@ -101,8 +106,8 @@ class Group():
         if len(self.permissions[data_type]) == 0:
             del self.permissions[data_type]
 
-    def is_member(self, user_name:str) -> bool:
-        return user_name in self.members
+    def is_member(self, username:str) -> bool:
+        return username in self.members
     
     def toJSON(self) -> str:
         return json.dumps({
@@ -111,10 +116,14 @@ class Group():
         })
     
 class User():
-    def __init__(self, user_name:str, password_hash:str) -> None:
-        self.user_name: str = user_name
+    def __init__(self, username:str, password_hash:str|None=None, setup_auth_hash:str|None=None) -> None:
+        self.username: str = username
         self.password_hash: str = password_hash
         self.groups: list[str] = []
+        self.setup_complete = False if password_hash == None else True
+        
+        self.online:bool = False
+        self.setup_auth_hash: str = setup_auth_hash
 
     def check_password(self, password_hash:str) -> bool:
         return self.password_hash == password_hash
@@ -128,10 +137,41 @@ class User():
 
     def in_group(self, group_name:str) -> bool:
         return group_name in self.groups
+
+    def finish_setup(self, password_hash:str, setup_auth_str:str) -> Tuple[bool, str]:
+        if not self.setup_complete:
+            verfication_hash = hashlib.sha256((self.username + setup_auth_str).encode()).hexdigest()
+            print(verfication_hash, self.username, setup_auth_str)
+            if verfication_hash != self.setup_auth_hash:
+                return False, "verfication failed"
+            
+            self.password_hash = password_hash
+            self.setup_complete = True
+            return True, "success"
+        else:
+            return False, "setup is already completed"
     
+    def in_session(self) -> bool:
+        return self.online
+
+    def new_session(self) -> str:
+        self.session_auth_str = secrets.token_hex(32)
+        self.online = True
+        auth_hash = hashlib.sha256(self.session_auth_str.encode()).hexdigest()
+        return auth_hash 
+    
+    def end_session(self) -> str:
+        if self.online:
+            auth_str = str(self.session_auth_str)
+            self.session_auth_str = None
+            return auth_str
+        else:
+            return None
+
+
     def toJSON(self) -> str:
         return json.dumps({
-            "user_name": self.user_name,
+            "username": self.username,
             "groups": self.groups,
         })            
 
@@ -159,40 +199,142 @@ class AccessManager():
         return wrapper
 
     @save_state_after
-    def create_user(self, user_name:str, password_hash:str) -> Tuple[bool, str]:
-        if self.user_exists(user_name):
-            error_message = f'Tried to create existing user "{user_name}"'
+    def create_user(self, username:str, password:str|None=None, setup_auth_hash:str|None=None) -> Tuple[bool, str]:
+        if self.user_exists(username):
+            error_message = f'Tried to create existing user "{username}"'
             self.logger.error(error_message)
             return False, error_message
-        new_user = User(user_name, password_hash)
- 
-        self.users.update({user_name: new_user})
+        
+        if password == None:
 
-        success_message = f'Created user "{user_name}".'
+            if setup_auth_hash == None:
+                error_message = f'Must pass setup_auth_hash for empty user "{username}"'
+                self.logger.critical(error_message)
+                return False, error_message
+            
+            self.logger.info(f'Creating empty user "{username}"')
+            new_user = User(username, setup_auth_hash=setup_auth_hash)
+        else: 
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            new_user = User(username, password_hash)
+
+ 
+        self.users.update({username: new_user})
+
+        success_message = f'Created user "{username}"'
         self.logger.info(success_message)
         return True, success_message
 
     @save_state_after
-    def delete_user(self, user_name:str) -> Tuple[bool, str]:
-        if not self.user_exists(user_name):
-            error_message = f'Tried to delete non-existent user "{user_name}"'
+    def delete_user(self, username:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'Tried to delete non-existent user "{username}"'
             self.logger.error(error_message)
             return False, error_message
         
-        user = self.users[user_name]
+        user = self.users[username]
+
+        self.disable_user_session(username)
 
         for group_name in user.groups:
             group = self.groups[group_name]
 
-            if group.is_member(user_name):
-                group.remove_member(user_name)
+            if group.is_member(username):
+                group.remove_member(username)
 
-        del self.users[user_name]
-        success_message = f'Deleted user "{user_name}".'
+        del self.users[username]
+        success_message = f'Deleted user "{username}".'
         self.logger.warning(success_message)
+
+
         return True, success_message
     
+    @save_state_after
+    def disable_user_session(self, username:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'User "{username}" doest not exist, cant disable user session'
+            self.logger.warning(error_message)
+            return False, error_message
+        
+        user = self.users[username]
+        if not user.in_session():
+            error_message = f'User "{username}" is not online, cant disable session'
+            self.logger.warning(error_message)
+            return False, error_message
+
+        auth_str = user.end_session()
+        
+        data = json.loads(json.dumps({'username': username, 'auth_str':auth_str}))
+
+        url = f'{BACKEND_SERVER_LOCATION}/disable_user_session'
+        response = requests.post(url=url, json=data)
+        print(response)
+
+        return True, response.json()
     
+    @save_state_after
+    def setup_onboarding(self, username:str) -> Tuple[bool, str, str]:
+        
+        setup_auth_str = secrets.token_hex(32)
+
+        setup_auth_hash = hashlib.sha256((username + setup_auth_str).encode()).hexdigest()
+        print(setup_auth_hash, username, setup_auth_str)
+        
+        # restart onboarding proccess
+        if self.user_exists(username):
+            self.logger.warning(f'Restarting onboarding proccess for user {username}')
+
+            user = self.users[username]
+            # copy joined groups
+            joined_groups = user.groups.copy()
+
+            # delete user
+            success, message = self.delete_user(username)
+
+            # undefined behaviour            
+            if not success:
+                self.logger.critical(f"Error occoured when restarting onboarding proccess: {message}")
+                
+        success, message = self.create_user(username, setup_auth_hash=setup_auth_hash)
+        if not success:
+            return False, "", message
+
+        # join previously joined groups
+        if joined_groups:
+            user = self.users[username]
+
+            for group_name in joined_groups:
+                success, message = self.add_user_to_group(username, group_name)
+
+                # undefined behaviour
+                if not success:
+                    self.logger.critical(f'User {username} unable to rejoin group {group_name}, error: {message}')
+
+        success_message = f'Onboarding token created'
+        self.logger.info(success_message)
+        return True, setup_auth_str, success_message
+    
+    @save_state_after
+    def finish_onboarding(self, username:str, password:str, setup_auth_str:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'User "{username}" does not exist, coult not finish onboarding'
+            self.logger.error(error_message)
+            return False, error_message
+        
+        user = self.users[username]
+
+        password_hash = hashlib.sha256((password).encode()).hexdigest()
+
+        success, message = user.finish_setup(password_hash, setup_auth_str)
+        if not success:
+            error_message = f'Faild to setup user "{username}", error: {message}'
+            self.logger.error(error_message)
+            return False, error_message
+        
+        success_message = f'Setup complete for user "{username}"'
+        self.logger.info(success_message)
+        return True, success_message
+
     @save_state_after
     def delete_group(self, group_name:str) -> Tuple[bool, str]:
         if not self.group_exists(group_name):
@@ -202,13 +344,13 @@ class AccessManager():
         
         group = self.groups[group_name]
 
-        for user_name in group.members:
-            user = self.users[user_name]
+        for username in group.members:
+            user = self.users[username]
             # can quit non-joined groups
             user.quit_group(group_name)
 
         del self.groups[group_name]
-        success_message = f'Deleted group "{user_name}".'
+        success_message = f'Deleted group "{group_name}".'
         self.logger.warning(success_message)
         return True, success_message
     
@@ -218,18 +360,20 @@ class AccessManager():
         users_json_dump = [user.toJSON() for user in users]
         return users_json_dump
     
-    def list_user(self, user_name:str) -> Tuple[bool, str]:
-        if not self.user_exists(user_name):
-            error_message = f'Tried to list properties of non-existet user "{user_name}"'
+    def list_user(self, username:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'Tried to list properties of non-existet user "{username}"'
             self.logger.warning(error_message)
             return False, error_message
         
-        self.logger.info(f'Listing all properties of user "{user_name}"')
-        user = self.users[user_name]
+        self.logger.info(f'Listing all properties of user "{username}"')
+        user = self.users[username]
 
         users_json_dump = json.dumps({
-            "user_name": user_name,
-            "groups":[self.groups[group].toJSON() for group in user.groups]
+            "username": username,
+            "groups":[self.groups[group].toJSON() for group in user.groups],
+            "online": user.online,
+            "setup_complete": user.setup_complete
         })
 
         return True, users_json_dump
@@ -251,8 +395,8 @@ class AccessManager():
 
         return True, group_json_dump
     
-    def user_exists(self, user_name:str) -> bool:
-        return user_name in self.users
+    def user_exists(self, username:str) -> bool:
+        return username in self.users
     
     def group_exists(self, group_name:str) -> bool:
         return group_name in self.groups
@@ -273,21 +417,21 @@ class AccessManager():
             self.logger.info(f'Created group "{group_name}". Permissions: {new_group.count_permissions()}')
 
     @save_state_after
-    def add_user_to_group(self, user_name:str, group_name:str) -> bool:
-        if not self.user_exists(user_name):
-            error_message = f'Tried to add non-existent user "{user_name}" to group {group_name}'
+    def add_user_to_group(self, username:str, group_name:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'Tried to add non-existent user "{username}" to group {group_name}'
             self.logger.error(error_message)
             return False, error_message
 
         if not self.group_exists(group_name):
-            error_message = f'Group "{group_name}" does not exist, could not add user "{user_name}"'
+            error_message = f'Group "{group_name}" does not exist, could not add user "{username}"'
             self.logger.error(error_message)
             return False, error_message
         
-        self.users[user_name].join_group(group_name)
-        self.groups[group_name].add_member(user_name)
+        self.users[username].join_group(group_name)
+        self.groups[group_name].add_member(username)
 
-        success_message = f'Added user "{user_name}" to group "{group_name}"'
+        success_message = f'Added user "{username}" to group "{group_name}"'
         self.logger.info(success_message)
 
         return True, success_message
@@ -335,89 +479,105 @@ class AccessManager():
         return True, success_message
     
     @save_state_after
-    def remove_user_from_group(self, user_name:str, group_name:str) -> Tuple[bool, str]:
-        if not self.user_exists(user_name):
-            error_message = f'Tried to remove non-existent user "{user_name}"'
+    def remove_user_from_group(self, username:str, group_name:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'Tried to remove non-existent user "{username}"'
             self.logger.error(error_message)
             return False, error_message
 
         if not self.group_exists(group_name):
-            error_message = f'Tried to remove user "{user_name}" from non-existent group {group_name}'
+            error_message = f'Tried to remove user "{username}" from non-existent group {group_name}'
             self.logger.error(error_message)
             return False, error_message
         
-        user = self.users[user_name]
+        user = self.users[username]
         group = self.groups[group_name]
 
         if not user.in_group(group_name):
-            error_message = f'User {user_name} is not member of group {group_name}'
+            error_message = f'User {username} is not member of group {group_name}'
             self.logger.warning(error_message)
             return False, error_message
         
-        if user.in_group(group_name) != group.is_member(user_name):
-            error_message = f'Mismatch in user "{user_name}" and group "{group_name}" member data! User groups: "{user.groups}". Group members: "{group.members}"'
+        if user.in_group(group_name) != group.is_member(username):
+            error_message = f'Mismatch in user "{username}" and group "{group_name}" member data! User groups: "{user.groups}". Group members: "{group.members}"'
             self.logger.critical(error_message)
             return False, error_message
         
-        self.groups[group_name].remove_member(user_name)
-        self.users[user_name].groups.remove(group_name)
+        self.groups[group_name].remove_member(username)
+        self.users[username].groups.remove(group_name)
 
-        success_message = f'Removed user "{user_name} from group "{group_name}"'
+        success_message = f'Removed user "{username} from group "{group_name}"'
         self.logger.warning(success_message)
         return True, success_message
 
-    def authorize_request(self, user_name:str, request:Tuple[str, str]) -> bool:
+    def authorize_request(self, username:str, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
-        if not self.user_exists(user_name):
-            self.logger.error(f'Tried to authorize request for non-existent user "{user_name}"')
+        if not self.user_exists(username):
+            self.logger.error(f'Tried to authorize request for non-existent user "{username}"')
             return False
-        user = self.users[user_name]
+        
+        user = self.users[username]
+
+        if not user.setup_complete:
+            self.logger.warning(f'User "{username}" setup process is not complete. Could not authorize request')
+            return False
+        
 
         authorized = False
         for group_name in user.groups:
             if not self.group_exists(group_name):
-                self.logger.error(f'User "{user_name}" is member of non-existent group "{group_name}"')  
+                self.logger.critical(f'User "{username}" is member of non-existent group "{group_name}"')  
                 continue
 
             group = self.groups[group_name]
 
             if group.is_allowed_access(request):
                 authorized = True
-                self.logger.info(f'Group "{group_name}" authorized "{user_name}" to "{data_id}"')
+                self.logger.info(f'Group "{group_name}" authorized "{username}" to "{data_id}"')
                 break
 
         if not authorized:
-            self.logger.warning(f'User "{user_name}" tried to access "{data_id}"')
+            self.logger.warning(f'User "{username}" tried to access "{data_id}"')
 
         return authorized
     
-    def authenticate_user(self, user_name:str, password_hash:str) -> bool:
-        if not self.user_exists(user_name):
-            self.logger.warning(f'User "{user_name}" not found, unable to authenticate')
-            return False
+    def authenticate_user(self, username:str, password:str) -> Tuple[bool, str|None]:
+        
+        if not self.user_exists(username):
+            self.logger.warning(f'User "{username}" not found, unable to authenticate')
+            return False, None
 
-        if self.users[user_name].check_password(password_hash):
-            self.logger.info(f'Authenticated user "{user_name}" with password hash "{password_hash}"')
-            return True
-        else:
-            self.logger.warning(f'Authentication faild for user "{user_name}" with password hash "{password_hash}"')
-            return False
+        user = self.users[username]
+
+        if not user.setup_complete:
+            self.logger.warning(f'User "{username}" setup process is not complete. Could not authenticate')
+            return False, None
+        
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+        if not user.check_password(password_hash):
+            self.logger.warning(f'Authentication faild for user "{username}" with password hash "{password_hash}"')
+            return False, None
+        
+        session_auth_hash = user.new_session()
+        self.logger.info(f'Authenticated user "{username}"')
+        return True, session_auth_hash
 
     def set_logging_level(self, logging_level) -> None:
         self.logger.setLevel(logging_level)
 
-    def is_user_in_group(self, user_name:str, group_name:str) -> bool:
+    def is_user_in_group(self, username:str, group_name:str) -> bool:
         if not self.group_exists(group_name):
-            self.logger.error(f'Group "{group_name}" does not exist therefore is user "{user_name}" not member')
+            self.logger.error(f'Group "{group_name}" does not exist therefore is user "{username}" not member')
             return False
         
-        if not self.user_exists(user_name):
-            self.logger.error(f'User "{user_name}" does not exists therefore is not in group "{group_name}"')
+        if not self.user_exists(username):
+            self.logger.error(f'User "{username}" does not exists therefore is not in group "{group_name}"')
             return False
         
         group = self.groups[group_name]
 
-        return group.is_member(user_name)
+        return group.is_member(username)
     
     def save_state(self, file_path: str) -> None:
         """Saves the current state of users and groups to a file."""
@@ -467,16 +627,16 @@ def test_access_manager(debug:bool):
     start_time = time.time()
     
     # Correct password hashes
-    john_password_hash = "password1"
-    jack_password_hash = "passwsord2"
-    admin_password_hash ="password3"
+    john_password = "password1"
+    jack_password = "passwsord2"
+    admin_password ="password3"
     
     output = '<div style="display:flex;flex-wrap:wrap;align-content:center;flex-direction: column;">'
     # Test creating users
     try:
-        manager.create_user("john", john_password_hash)
-        manager.create_user("jack", jack_password_hash)
-        manager.create_user("admin", admin_password_hash)
+        manager.create_user("john", john_password)
+        manager.create_user("jack", jack_password)
+        manager.create_user("admin", admin_password)
         output += format_results(True, "User creation test passed")
     except Exception as e:
         output += format_results(False, f"User creation test failed: {e}")
@@ -602,9 +762,9 @@ def test_access_manager(debug:bool):
         output += format_results(True, "Remove user from non-existent group test passed")
 
     # Test correct authentication
-    output += format_results(manager.authenticate_user("john", john_password_hash), "Authentication passed for 'john' with correct password")
-    output += format_results(manager.authenticate_user("jack", jack_password_hash), "Authentication passed for 'jack' with correct password")
-    output += format_results(manager.authenticate_user("admin", admin_password_hash), "Authentication passed for 'admin' with correct password")
+    output += format_results(manager.authenticate_user("john", john_password), "Authentication passed for 'john' with correct password")
+    output += format_results(manager.authenticate_user("jack", jack_password), "Authentication passed for 'jack' with correct password")
+    output += format_results(manager.authenticate_user("admin", admin_password), "Authentication passed for 'admin' with correct password")
 
     # Test incorrect password
     output += format_results(not manager.authenticate_user("john", "wrongpasswordhash"), "Authentication failed for 'john' with incorrect password")
@@ -615,7 +775,7 @@ def test_access_manager(debug:bool):
     output += format_results(not manager.authenticate_user("nonexistent", "passwordhash"), "Authentication failed for non-existent user")
 
     # Test empty username
-    output += format_results(not manager.authenticate_user("", john_password_hash), "Authentication failed for empty username")
+    output += format_results(not manager.authenticate_user("", john_password), "Authentication failed for empty username")
 
     # Test empty password
     output += format_results(not manager.authenticate_user("john", ""), "Authentication failed for empty password")

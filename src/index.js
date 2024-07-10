@@ -1,18 +1,28 @@
+async function sha256(message) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+}
+
 function fillOutTemplateForm(name, inputFields) {
     console.log(`creating template with ${JSON.stringify(inputFields)}`);
 
     inputFieldsHTMLCode = "";
     for (let i = 0; i < inputFields.length; i++) {
         field = inputFields[i];
+        type = (field == "password") ? "password" : "text"
         inputFieldsHTMLCode += `
         <label for="${field.id}">${field.prompt}</label> 
-        <input type="text" id="${field.id}"><br><br>`;
+        <input type="${type}" id="${field.id}"><br><br>`;
     }
 
     var formContent = `
         <h2>${name}</h2>
         ${inputFieldsHTMLCode}
-        <button id="submit-button">Create</button>`;
+        <button id="submit-button">Submit</button>`;
     return formContent;
 }
 
@@ -123,7 +133,7 @@ function visualizeUsers(data) {
 
         const userNameDiv = document.createElement('div');
         userNameDiv.className = 'user-name';
-        userNameDiv.textContent = `User Name: ${user.user_name}`;
+        userNameDiv.textContent = `User Name: ${user.username}`; 
 
         const groupsDiv = document.createElement('div');
         groupsDiv.className = 'groups';
@@ -153,8 +163,17 @@ function visualizeUser(data) {
     // Create and append the user name
     const userName = document.createElement('h2');
     userName.className = "name-header"
-    userName.textContent = `User Name: ${data.user_name}`;
+    userName.textContent = `User Name: ${data.username}`;
     containerDiv.appendChild(userName);
+
+    const onlineStatus = document.createElement('p');
+    onlineStatus.textContent = (data.online) ? "online" : "offline";
+    containerDiv.appendChild(onlineStatus);  
+
+    
+    const setupStatus = document.createElement('p');
+    setupStatus.textContent = "setup " + ((data.setup_complete) ? "complete" : "inprogress");
+    containerDiv.appendChild(setupStatus);  
 
     const groupContainer = document.createElement('div');
     groupContainer.className = 'group-container';
@@ -234,12 +253,12 @@ async function userExplorerPopup() {
     createPopup(
         "User Explorer",
         [
-            { id: "user_name", prompt: "Username" },
+            { id: "username", prompt: "Username" },
         ],
         () => {
             let fields = readFormFields();
             removePopup();
-            defaultRequest("POST", "/list_user", { "user_name": fields.user_name })
+            defaultRequest("POST", "/list_user", { "username": fields.username })
                 .then((response) => {
                     console.log(response.user);
                     visualizeUser(response.user)
@@ -271,23 +290,53 @@ function createUserPopup() {
     createPopup(
         "Create User",
         [
-            { id: "user_name", prompt: "Username" },
-            { id: "password_hash", prompt: "Password" },
+            { id: "username", prompt: "Username" },
+            { id: "password", prompt: "Password" },
+            { id: "password_hash", prompt: "Password Hash" },
         ],
-        () => {
-            endpointHandler("/create_user")
+        async () => {
+            let fields = readFormFields();
+            removePopup();
+            
+            if (fields.password != "" && fields.password_hash != "") {
+                alert("Bro only one at a time");
+                return;
+            }
+
+            if (fields.password != "") {
+                fields.password_hash = await sha256(fields.password)
+            }
+
+            if (fields.password == "" && fields.password == "") {
+                alert('Must fill one of the fields, cant setup onboarding link her, mate')
+                return;
+            }
+
+            defaultRequest("POST", "/create_user", fields);
         }
     );
+}
+
+function setupOnboardingPopup() {
+    createPopup(
+        "Setup Onboarding Link",
+        [
+            {id: "username", prompt: "Username"}
+        ],
+        () => {
+            endpointHandler("/setup_onboarding");
+        }
+    )
 }
 
 function deleteUserPopup() {
     createPopup(
         "Delete User",
         [
-            { id: "user_name", prompt: "User" },
+            { id: "username", prompt: "User" },
         ],
         () => {
-            endpointHandlerWithConfirmation("/delete_user", "Are you sure you want to delete ", "user_name");
+            endpointHandlerWithConfirmation("/delete_user", "Are you sure you want to delete ", "username");
         }
     );
 }
@@ -323,7 +372,7 @@ function addUserToGroupPopup() {
     createPopup(
         "Add User to Group",
         [
-            { id: "user_name", prompt: "User" },
+            { id: "username", prompt: "User" },
             { id: "group_name", prompt: "Group" },
         ],
         () => {
@@ -353,7 +402,7 @@ function removeUserFromGroupPopup() {
         "Remove User from Group",
         [
             { id: "group_name", prompt: "Group" },
-            { id: "user_name", prompt: "Group" },
+            { id: "username", prompt: "Group" },
         ],
         () => {
             endpointHandler("/remove_user_from_group");

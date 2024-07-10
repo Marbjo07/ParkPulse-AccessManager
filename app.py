@@ -6,11 +6,12 @@ import hashlib
 
 # Initialize Flask app
 app = Flask(__name__, static_folder="src")
-app.secret_key = 'your_secret_key'
+app.secret_key = '1a05ccb9f2e670310e129ef67b1a05ccb9f2e670310e129ef67b67b1a05ccb929a0bf3'
 login_manager = LoginManager()
 login_manager.init_app(app)
 
 manager = AccessManager('access_manager.state')
+
 
 class User(UserMixin):
     def __init__(self, id):
@@ -23,7 +24,7 @@ users = {
 
 @login_manager.user_loader
 def load_user(user_id):
-    for user_name, user_data in users.items():
+    for username, user_data in users.items():
         if user_data['user_obj'].id == user_id:
             return user_data['user_obj']
     return None
@@ -36,11 +37,11 @@ def _():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user_name = request.json['user_name']
+        username = request.json['username']
         password = request.json['password']
         password_hash = hashlib.sha256(password.encode()).hexdigest()
 
-        user_data = users.get(user_name)
+        user_data = users.get(username)
     
         if user_data and user_data['password_hash'] == password_hash:
             login_user(user_data['user_obj'])
@@ -62,25 +63,53 @@ def logout():
 def control_panel():
     return send_file('src/index.html'), 200
 
-# Define routes
 @app.route('/create_user', methods=['POST'])
 @login_required
 def create_user():
     data = request.json
-    user_name = data.get('user_name')
-    password = data.get('password_hash')
-    try:
-        manager.create_user(user_name, password)
-        return jsonify({"message": "User created successfully"}), 201
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    username = data.get('username')
+    password = data.get('password_hash') # treat password_hash as password
+
+    success, message = manager.create_user(username, password)
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400
     
+@app.route('/setup_onboarding', methods=['POST'])
+@login_required
+def setup_onboarding():
+    data = request.json
+    username = data.get('username')
+    
+    # it restarts the proccess if user already exists
+    success, message, setup_auth_str = manager.setup_onboarding(username)
+    if success:
+        return jsonify({"message": message, "setup_auth_str": setup_auth_str}), 201
+    else:
+        return jsonify({"error": message}), 400
+
+    
+@app.route('/finish_onboarding', methods=['POST'])
+def finish_onboarding():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password_hash')
+    setup_auth_str = data.get('token')
+
+
+    success, message = manager.finish_onboarding(username, password, setup_auth_str)
+    if success:
+        return jsonify({"message": message}), 201
+    else:
+        return jsonify({"error": message}), 400 
+
 @app.route('/delete_user', methods=['POST'])
 @login_required
 def delete_user():
     data = request.json
-    user_name = data.get('user_name')
-    success, error_message = manager.delete_user(user_name)
+    username = data.get('username')
+    success, error_message = manager.delete_user(username)
     if success:
         return jsonify({"message": "User deleted successfully"}), 201
     else:
@@ -90,10 +119,10 @@ def delete_user():
 @login_required
 def list_user():
     data = request.json
-    user_name = data.get('user_name')
-    success, error_message_or_user = manager.list_user(user_name)
+    username = data.get('username')
+    success, error_message_or_user = manager.list_user(username)
     if success:
-        return jsonify({"message": f"Listed all properties of user {user_name}", "user": error_message_or_user}), 200
+        return jsonify({"message": f"Listed all properties of user {username}", "user": error_message_or_user}), 200
     else:
         return jsonify({"error": error_message_or_user}), 400
     
@@ -120,9 +149,9 @@ def create_group():
 @login_required
 def add_user_to_group():
     data = request.json
-    user_name = data.get('user_name')
+    username = data.get('username')
     group_name = data.get('group_name')
-    success, message = manager.add_user_to_group(user_name, group_name)
+    success, message = manager.add_user_to_group(username, group_name)
     if success:
         return jsonify({"message": message}), 201
     else:
@@ -169,35 +198,40 @@ def remove_permissions_from_group():
 @app.route('/authorize_request', methods=['POST'])
 def authorize_request():
     data = request.json
-    user_name = data.get('user_name')
+    username = data.get('username')
     permission = tuple(data.get('permission'))
-    try:
-        authorized = manager.authorize_request(user_name, permission)
-        return jsonify({"authorized": authorized}), 200
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    
+    authorized = manager.authorize_request(username, permission)
+    print(authorized)
+    if authorized:
+        return jsonify({"authorized": True}), 200
+    else:
+        return jsonify({"authorized": False}), 401
+
+@app.route('/authenticate_user', methods=['POST'])
+def authenticate_user():
+    data = request.json
+    username = data.get('username')
+    password_hash = data.get('password_hash')
+
+    authenticated, auth_hash = manager.authenticate_user(username, password_hash)
+
+    if not authenticated:
+        return jsonify({"authenticated": False}), 401
+    
+    return jsonify({"authenticated": True, "auth_hash":auth_hash}), 201
 
 @app.route('/remove_user_from_group', methods=['POST'])
 @login_required
 def remove_user_from_group():
     data = request.json
-    user_name = data.get('user_name')
+    username = data.get('username')
     group_name = data.get('group_name')
-    success, message = manager.remove_user_from_group(user_name, group_name)
+    success, message = manager.remove_user_from_group(username, group_name)
     if success:
         return jsonify({"message": message}), 201
     else:
         return jsonify({"error": message}), 400
-
-@app.route('/authenticate_user', methods=['POST'])
-@login_required
-def authenticate_user():
-    data = request.json
-    print(data)
-    user_name = data.get('user_name')
-    password_hash = data.get('password_hash')
-    authenticated = manager.authenticate_user(user_name, password_hash)
-    return jsonify({"authenticated": authenticated}), 200
 
 @app.route('/delete_group', methods=['POST'])
 @login_required
