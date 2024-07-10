@@ -90,7 +90,7 @@ async function defaultRequest(method, endpoint, body) {
         delete data.body;
     }
 
-    let response = await fetch(`${BACKEND_SERVER_LOCATION}/${endpoint}`, data);
+    let response = await fetch(`${ACCESS_MANAGER_LOCATION}/${endpoint}`, data);
 
     let response_data = await response.json();
 
