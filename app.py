@@ -12,7 +12,6 @@ login_manager.init_app(app)
 
 manager = AccessManager('access_manager.state')
 
-
 class User(UserMixin):
     def __init__(self, id):
         self.id = id

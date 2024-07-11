@@ -10,8 +10,10 @@ import secrets
 import requests
 import functools
 from typing import Dict, Tuple
+from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 
 BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
+#BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
 
 # Define color codes
 LOG_COLORS = {
@@ -183,7 +185,12 @@ class AccessManager():
         self.logger = setup_custom_logger(name)
         self.set_logging_level(init_log_level)
 
-        if state_file_path != None and load_state:
+        self.use_azure_storage = os.getenv('USE_AZURE_STORAGE', 'False') == 'True'
+        self.azure_blob_service_url = os.getenv('AZURE_BLOB_SERVICE_URL', '')
+        self.azure_sas_token = os.getenv('AZURE_SAS_TOKEN', '')
+        self.azure_container_name = os.getenv('AZURE_CONTAINER_NAME', '')
+
+        if state_file_path is not None and load_state:
             self.load_state(state_file_path)
         
         self.state_file_path = state_file_path
@@ -581,28 +588,73 @@ class AccessManager():
     
     def save_state(self, file_path: str) -> None:
         """Saves the current state of users and groups to a file."""
-        try:
-            with open(file_path, 'wb') as file:
-                pickle.dump((self.users, self.groups), file)
-            self.logger.debug(f'Successfully saved state to {file_path}')
-        except Exception as e:
-            self.logger.error(f'Failed to save state: {str(e)}')
+        if self.use_azure_storage:
+            try:
+                blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name=file_path, credential=self.azure_sas_token)
+                
+                state_data = pickle.dumps((self.users, self.groups))
+                blob_client.upload_blob(state_data, overwrite=True)
+
+                # Save log file
+                log_blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name="log.txt", credential=self.azure_sas_token)
+                with open("log.txt", "rb") as log_file:
+                    log_blob_client.upload_blob(log_file, overwrite=True)
+                
+                self.logger.debug(f'Successfully saved state and log to Azure Blob Storage: {file_path}')
+            except Exception as e:
+                self.logger.error(f'Failed to save state and log to Azure Blob Storage: {str(e)}')
+        else:
+            try:
+                with open(file_path, 'wb') as file:
+                    pickle.dump((self.users, self.groups), file)
+                
+                with open("log.txt", "rb") as log_file:
+                    log_data = log_file.read()
+                
+                self.logger.debug(f'Successfully saved state and log to {file_path}')
+            except Exception as e:
+                self.logger.error(f'Failed to save state and log: {str(e)}')
 
     def load_state(self, file_path: str) -> None:
         """Loads the state of users and groups from a file."""
-        try:
-            if not os.path.exists(file_path):
-                assert False, "File does not exist"
+        if self.use_azure_storage:
+            try:
+                blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name=file_path, credential=self.azure_sas_token)
+                
+                if not blob_client.exists():
+                    assert False, "Blob does not exist"
 
-            with open(file_path, 'rb') as file:
-                self.users, self.groups = pickle.load(file)
-            self.logger.info(f'Successfully loaded state from {file_path}')
-            self.logger.info(f'All users: {list(self.users.keys())}')
-            self.logger.info(f'Total number of users: {len(self.users.keys())}')
-            self.logger.info(f'All groups: {list(self.groups.keys())}')
-            self.logger.info(f'Total number of groups: {len(self.groups.keys())}')
-        except Exception as e:
-            self.logger.critical(f'Failed to load state: {str(e)}')
+                state_data = blob_client.download_blob().readall()
+                self.users, self.groups = pickle.loads(state_data)
+
+                # Load log file
+                log_blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name="log.txt", credential=self.azure_sas_token)
+                with open("log.txt", "wb") as log_file:
+                    log_file.write(log_blob_client.download_blob().readall())
+                
+                self.logger.info(f'Successfully loaded state and log from Azure Blob Storage: {file_path}')
+                self.logger.info(f'All users: {list(self.users.keys())}')
+                self.logger.info(f'Total number of users: {len(self.users.keys())}')
+                self.logger.info(f'All groups: {list(self.groups.keys())}')
+                self.logger.info(f'Total number of groups: {len(self.groups.keys())}')
+            except Exception as e:
+                self.logger.critical(f'Failed to load state and log from Azure Blob Storage: {str(e)}')
+        else:
+            try:
+                if not os.path.exists(file_path):
+                    assert False, "File does not exist"
+
+                with open(file_path, 'rb') as file:
+                    self.users, self.groups = pickle.load(file)
+                
+                self.logger.info(f'Successfully loaded state and log from {file_path}')
+                self.logger.info(f'All users: {list(self.users.keys())}')
+                self.logger.info(f'Total number of users: {len(self.users.keys())}')
+                self.logger.info(f'All groups: {list(self.groups.keys())}')
+                self.logger.info(f'Total number of groups: {len(self.groups.keys())}')
+            except Exception as e:
+                self.logger.critical(f'Failed to load state and log: {str(e)}')
+
 
     def delete_logger(self) -> None:
         self.logger.critical(f'Logger deletion called!')
