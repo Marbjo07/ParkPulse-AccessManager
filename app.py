@@ -103,6 +103,18 @@ def finish_onboarding():
     else:
         return jsonify({"error": message}), 400 
 
+@app.route('/disable_user_session', methods=['POST'])
+@login_required
+def disable_user_session():
+    data = request.json
+    username = data.get('username')
+    print(data)
+    success, error_message = manager.disable_user_session(username)
+    if success:
+        return jsonify({"message": "Disabled user session successfully"}), 201
+    else:
+        return jsonify({"error": error_message}), 400
+    
 @app.route('/delete_user', methods=['POST'])
 @login_required
 def delete_user():
@@ -198,10 +210,10 @@ def remove_permissions_from_group():
 def authorize_request():
     data = request.json
     username = data.get('username')
-    permission = tuple(data.get('permission'))
+    permission = tuple(data.get('request'))
+    print(permission)
     
     authorized = manager.authorize_request(username, permission)
-    print(authorized)
     if authorized:
         return jsonify({"authorized": True}), 200
     else:

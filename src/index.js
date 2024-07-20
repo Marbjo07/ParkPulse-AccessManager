@@ -1,4 +1,5 @@
 const ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
+//const ACCESS_MANAGER_LOCATION = "http://127.0.0.1:5050"
 
 async function sha256(message) {
     const encoder = new TextEncoder();
@@ -344,6 +345,19 @@ function deleteUserPopup() {
 }
 
 
+function disableUserSessionPopup() {
+    createPopup(
+        "Disable User Session",
+        [
+            { id: "username", prompt: "User" },
+        ],
+        () => {
+            endpointHandlerWithConfirmation("/disable_user_session", "Are you sure you want to disable ", "username");
+        }
+    );
+}
+
+
 function createGroupPopup() {
     createPopup(
         "Create Group",
@@ -403,8 +417,8 @@ function removeUserFromGroupPopup() {
     createPopup(
         "Remove User from Group",
         [
+            { id: "username", prompt: "User" },
             { id: "group_name", prompt: "Group" },
-            { id: "username", prompt: "Group" },
         ],
         () => {
             endpointHandler("/remove_user_from_group");
