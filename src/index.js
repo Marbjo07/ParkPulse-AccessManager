@@ -115,10 +115,18 @@ function endpointHandler(endpoint) {
 
 function endpointHandlerWithConfirmation(endpoint, confirmationPrompt, confirmationDataField) {
     let fields = readFormFields();
-    let answer = prompt(confirmationPrompt + fields[confirmationDataField]);
+    let answer = null;
+    if (confirmationDataField == "y/n") {
+        answer = prompt(confirmationPrompt + confirmationDataField);
+    }
+    else {
+        answer = prompt(confirmationPrompt + fields[confirmationDataField]);
+    }
 
     removePopup();
-    if (answer == fields[confirmationDataField]) {
+    if ((confirmationDataField == "y/n" && answer == "y") ||
+        (answer == fields[confirmationDataField])
+    ) {
         defaultRequest("POST", endpoint, fields);
     }
 }
@@ -352,7 +360,7 @@ function disableUserSessionPopup() {
             { id: "username", prompt: "User" },
         ],
         () => {
-            endpointHandlerWithConfirmation("/disable_user_session", "Are you sure you want to disable ", "username");
+            endpointHandlerWithConfirmation("/disable_user_session", "Are you sure you want to disable ", "y/n");
         }
     );
 }

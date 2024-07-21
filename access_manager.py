@@ -10,10 +10,9 @@ import secrets
 import requests
 import functools
 from typing import Dict, Tuple
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.storage.blob import BlobClient
 
-BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
-#BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
+LOG_LEVEL_SWORD = 1000
 
 # Define color codes
 LOG_COLORS = {
@@ -21,6 +20,7 @@ LOG_COLORS = {
     'WARNING': '\033[93m',   # Yellow
     'ERROR': '\033[91m',     # Red
     'CRITICAL': '\033[95m',  # Magenta
+    f'Level {LOG_LEVEL_SWORD}': '\033[42m',
     'RESET': '\033[0m'       # Reset
 }
 
@@ -30,7 +30,6 @@ class ColoredFormatter(logging.Formatter):
         record.levelname = f"{log_color}{record.levelname}{LOG_COLORS['RESET']}"
         record.msg = f"{log_color}{record.msg}{LOG_COLORS['RESET']}"
         return super().format(record)
-
 
 def setup_custom_logger(name):
     formatter = ColoredFormatter(fmt='[%(asctime)s.%(msecs)03d | %(levelname)s]: %(message)s',
@@ -45,8 +44,6 @@ def setup_custom_logger(name):
     logger.addHandler(handler)
     logger.addHandler(screen_handler)
     return logger
-
-
 
 # Organizes different accesses and premisions
 class Group():
@@ -143,7 +140,6 @@ class User():
     def finish_setup(self, password_hash:str, setup_auth_str:str) -> Tuple[bool, str]:
         if not self.setup_complete:
             verfication_hash = hashlib.sha256((self.username + setup_auth_str).encode()).hexdigest()
-            print(verfication_hash, self.username, setup_auth_str)
             if verfication_hash != self.setup_auth_hash:
                 return False, "verfication failed"
             
@@ -166,6 +162,7 @@ class User():
         if self.online:
             auth_str = str(self.session_auth_str)
             self.session_auth_str = None
+            self.online = False
             return auth_str
         else:
             return None
@@ -253,11 +250,10 @@ class AccessManager():
         success_message = f'Deleted user "{username}".'
         self.logger.warning(success_message)
 
-
         return True, success_message
     
     @save_state_after
-    def disable_user_session(self, username:str) -> Tuple[bool, str]:
+    def disable_user_session(self, username:str, backend_server_location:str) -> Tuple[bool, str]:
         if not self.user_exists(username):
             error_message = f'User "{username}" doest not exist, cant disable user session'
             self.logger.warning(error_message)
@@ -273,9 +269,8 @@ class AccessManager():
         
         data = json.loads(json.dumps({'username': username, 'auth_str':auth_str}))
 
-        url = f'{BACKEND_SERVER_LOCATION}/disable_user_session'
+        url = f'{backend_server_location}/disable_user_session'
         response = requests.post(url=url, json=data)
-        print(response)
 
         return True, response.json()
     
@@ -285,7 +280,6 @@ class AccessManager():
         setup_auth_str = secrets.token_hex(32)
 
         setup_auth_hash = hashlib.sha256((username + setup_auth_str).encode()).hexdigest()
-        print(setup_auth_hash, username, setup_auth_str)
         
         # restart onboarding proccess
         if self.user_exists(username):
@@ -384,6 +378,40 @@ class AccessManager():
         })
 
         return True, users_json_dump
+    
+    def is_user_all_powerful(self, username:str) -> bool:
+        if not self.user_exists(username):
+            return False
+        
+        if self.is_user_in_group(username, "Seraphim"):
+            self.logger.log(LOG_LEVEL_SWORD, f'User "{username}" used his sword!')
+            return True
+        
+        return False
+
+    def list_user_cities(self, username:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            error_message = f'Tried to list all cities for non-existet user "{username}"'
+            self.logger.warning(error_message)
+            return False, error_message
+        
+        self.logger.info(f'Listing all available cities for user "{username}"')
+        user = self.users[username]
+        
+        # Determine which groups to check based on the user's power level
+        if self.is_user_all_powerful(username): 
+            groups_to_check = self.groups
+        else:
+            groups_to_check = {name: self.groups[name] for name in user.groups}
+
+        # Iterate over the groups and collect available cities from permissions
+        available_cities = []
+        for group in groups_to_check.values():
+            if 'city' in group.permissions:
+                available_cities += group.permissions['city']
+
+        self.logger.info(f'All available cities for user "{username}": {available_cities}')
+        return True, available_cities
     
     def list_group(self, group_name:str) -> Tuple[bool, str]:
         if not self.group_exists(group_name):
@@ -523,14 +551,16 @@ class AccessManager():
             self.logger.error(f'Tried to authorize request for non-existent user "{username}"')
             return False
         
+        if self.is_user_all_powerful(username):
+            self.logger.info(f'Sword authorized "{username}" to "{data_id}"')
+            return True
+        
         user = self.users[username]
 
         if not user.setup_complete:
             self.logger.warning(f'User "{username}" setup process is not complete. Could not authorize request')
             return False
         
-
-        authorized = False
         for group_name in user.groups:
             if not self.group_exists(group_name):
                 self.logger.critical(f'User "{username}" is member of non-existent group "{group_name}"')  
@@ -539,14 +569,11 @@ class AccessManager():
             group = self.groups[group_name]
 
             if group.is_allowed_access(request):
-                authorized = True
                 self.logger.info(f'Group "{group_name}" authorized "{username}" to "{data_id}"')
-                break
-
-        if not authorized:
-            self.logger.warning(f'User "{username}" tried to access "{data_id}"')
-
-        return authorized
+                return True
+            
+        self.logger.warning(f'User "{username}" tried to access "{data_id}"')
+        return False
     
     def authenticate_user(self, username:str, password:str) -> Tuple[bool, str|None]:
         
@@ -568,7 +595,7 @@ class AccessManager():
         
         session_auth_hash = user.new_session()
         self.logger.info(f'Authenticated user "{username}"')
-        return True, session_auth_hash
+        return True, session_auth_hash, self.is_user_all_powerful(username)
 
     def set_logging_level(self, logging_level) -> None:
         self.logger.setLevel(logging_level)
@@ -673,6 +700,8 @@ def format_results(result, message, use_emoji=True):
 
 # Test cases for AccessManager
 def test_access_manager(debug:bool):
+    using_azure = os.environ['USE_AZURE']
+    os.environ['USE_AZURE'] = False 
     manager = AccessManager(state_file_path="access_manager_test.state", load_state=False, name="AccessManagerTest")
     manager.set_logging_level(logging.DEBUG if debug else logging.CRITICAL)
 
@@ -814,23 +843,23 @@ def test_access_manager(debug:bool):
         output += format_results(True, "Remove user from non-existent group test passed")
 
     # Test correct authentication
-    output += format_results(manager.authenticate_user("john", john_password), "Authentication passed for 'john' with correct password")
-    output += format_results(manager.authenticate_user("jack", jack_password), "Authentication passed for 'jack' with correct password")
-    output += format_results(manager.authenticate_user("admin", admin_password), "Authentication passed for 'admin' with correct password")
+    output += format_results(manager.authenticate_user("john", john_password)[0], "Authentication passed for 'john' with correct password")
+    output += format_results(manager.authenticate_user("jack", jack_password)[0], "Authentication passed for 'jack' with correct password")
+    output += format_results(manager.authenticate_user("admin", admin_password)[0], "Authentication passed for 'admin' with correct password")
 
     # Test incorrect password
-    output += format_results(not manager.authenticate_user("john", "wrongpasswordhash"), "Authentication failed for 'john' with incorrect password")
-    output += format_results(not manager.authenticate_user("jack", "wrongpasswordhash"), "Authentication failed for 'jack' with incorrect password")
-    output += format_results(not manager.authenticate_user("admin", "wrongpasswordhash"), "Authentication failed for 'admin' with incorrect password")
+    output += format_results(not manager.authenticate_user("john", "wrongpasswordhash")[0], "Authentication failed for 'john' with incorrect password")
+    output += format_results(not manager.authenticate_user("jack", "wrongpasswordhash")[0], "Authentication failed for 'jack' with incorrect password")
+    output += format_results(not manager.authenticate_user("admin", "wrongpasswordhash")[0], "Authentication failed for 'admin' with incorrect password")
 
     # Test non-existent user
-    output += format_results(not manager.authenticate_user("nonexistent", "passwordhash"), "Authentication failed for non-existent user")
+    output += format_results(not manager.authenticate_user("nonexistent", "passwordhash")[0], "Authentication failed for non-existent user")
 
     # Test empty username
-    output += format_results(not manager.authenticate_user("", john_password), "Authentication failed for empty username")
+    output += format_results(not manager.authenticate_user("", john_password)[0], "Authentication failed for empty username")
 
     # Test empty password
-    output += format_results(not manager.authenticate_user("john", ""), "Authentication failed for empty password")
+    output += format_results(not manager.authenticate_user("john", "")[0], "Authentication failed for empty password")
 
     # Test deleting an existing user
     success, message = manager.delete_user("john")
@@ -863,7 +892,7 @@ def test_access_manager(debug:bool):
 
 
     # Test authentication with a deleted user
-    success = manager.authenticate_user("emma", "passord4")
+    success, message = manager.authenticate_user("emma", "passord4")
     if not success:
         output += format_results(True, f"Authentication failed for deleted user")
     else:
@@ -877,6 +906,7 @@ def test_access_manager(debug:bool):
     output += "</div>"
 
     manager.delete_logger()
+    os.environ['USE_AZURE'] = using_azure 
     return output
 
 # Performance tests for AccessManager
@@ -933,6 +963,7 @@ def performance_test_access_manager(debug):
 
     output += f"<h4>Time taken to reboot {num_reboots} times: {end_time - start_time:.4f} seconds</h4>"
     manager.delete_logger()
+
     return output
 
     

@@ -10,6 +10,11 @@ app.secret_key = '1a05ccb9f2e670310e129ef67b1a05ccb9f2e670310e129ef67b67b1a05ccb
 login_manager = LoginManager()
 login_manager.init_app(app)
 
+if app.debug:
+    BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
+else:
+    BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
+
 manager = AccessManager('access_manager.state')
 
 class User(UserMixin):
@@ -109,7 +114,7 @@ def disable_user_session():
     data = request.json
     username = data.get('username')
     print(data)
-    success, error_message = manager.disable_user_session(username)
+    success, error_message = manager.disable_user_session(username, BACKEND_SERVER_LOCATION)
     if success:
         return jsonify({"message": "Disabled user session successfully"}), 201
     else:
@@ -137,6 +142,21 @@ def list_user():
     else:
         return jsonify({"error": error_message_or_user}), 400
     
+@app.route('/list_available_cities', methods=["POST"])
+def list_available_cities():
+    data = request.json
+
+    if 'username' not in data:
+        return jsonify({'error': 'Invalid request, must provide username'}), 400
+    
+    username = data['username']
+
+    success, error_message_or_user = manager.list_user_cities(username)
+    if success:
+        return jsonify({"message": f"Listed all available cities for user {username}", "cities": error_message_or_user}), 200
+    else:
+        return jsonify({"error": error_message_or_user}), 400
+
 @app.route('/list_group', methods=["POST"])
 @login_required
 def list_group():
@@ -211,7 +231,6 @@ def authorize_request():
     data = request.json
     username = data.get('username')
     permission = tuple(data.get('request'))
-    print(permission)
     
     authorized = manager.authorize_request(username, permission)
     if authorized:
@@ -225,12 +244,12 @@ def authenticate_user():
     username = data.get('username')
     password_hash = data.get('password_hash')
 
-    authenticated, auth_hash = manager.authenticate_user(username, password_hash)
+    authenticated, auth_hash, has_sword = manager.authenticate_user(username, password_hash)
 
     if not authenticated:
-        return jsonify({"authenticated": False}), 401
+        return jsonify({"authenticated": False, "has_sword":False}), 401
     
-    return jsonify({"authenticated": True, "auth_hash":auth_hash}), 201
+    return jsonify({"authenticated": True, "auth_hash":auth_hash, "has_sword":has_sword}), 201
 
 @app.route('/remove_user_from_group', methods=['POST'])
 @login_required
