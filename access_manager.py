@@ -579,19 +579,19 @@ class AccessManager():
         
         if not self.user_exists(username):
             self.logger.warning(f'User "{username}" not found, unable to authenticate')
-            return False, None
+            return False, None, False
 
         user = self.users[username]
 
         if not user.setup_complete:
             self.logger.warning(f'User "{username}" setup process is not complete. Could not authenticate')
-            return False, None
+            return False, None, False
         
         password_hash = hashlib.sha256(password.encode()).hexdigest()
 
         if not user.check_password(password_hash):
             self.logger.warning(f'Authentication faild for user "{username}" with password hash "{password_hash}"')
-            return False, None
+            return False, None, False
         
         session_auth_hash = user.new_session()
         self.logger.info(f'Authenticated user "{username}"')
