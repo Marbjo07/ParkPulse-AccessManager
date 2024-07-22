@@ -700,8 +700,8 @@ def format_results(result, message, use_emoji=True):
 
 # Test cases for AccessManager
 def test_access_manager(debug:bool):
-    using_azure = os.environ['USE_AZURE']
-    os.environ['USE_AZURE'] = False 
+    using_azure = os.environ['USE_AZURE_STORAGE']
+    os.environ['USE_AZURE_STORAGE'] = False 
     manager = AccessManager(state_file_path="access_manager_test.state", load_state=False, name="AccessManagerTest")
     manager.set_logging_level(logging.DEBUG if debug else logging.CRITICAL)
 
@@ -906,12 +906,13 @@ def test_access_manager(debug:bool):
     output += "</div>"
 
     manager.delete_logger()
-    os.environ['USE_AZURE'] = using_azure 
+    os.environ['USE_AZURE_STORAGE'] = using_azure 
     return output
 
 # Performance tests for AccessManager
 def performance_test_access_manager(debug):
-    
+    using_azure = os.environ['USE_AZURE_STORAGE']
+    os.environ['USE_AZURE_STORAGE'] = False 
     performance_test_log_level = logging.INFO if debug else logging.CRITICAL
     manager = AccessManager(name="AccessManagerPerformanceTest")
     manager.set_logging_level(performance_test_log_level)
@@ -963,7 +964,8 @@ def performance_test_access_manager(debug):
 
     output += f"<h4>Time taken to reboot {num_reboots} times: {end_time - start_time:.4f} seconds</h4>"
     manager.delete_logger()
-
+    
+    os.environ['USE_AZURE_STORAGE'] = using_azure 
     return output
 
     
