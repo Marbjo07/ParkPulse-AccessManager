@@ -15,7 +15,7 @@ if app.debug:
 else:
     BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
 
-manager = AccessManager('access_manager.state')
+manager = AccessManager('access_manager.state', localdev=app.debug)
 
 class User(UserMixin):
     def __init__(self, id):

@@ -11,6 +11,8 @@ import requests
 import functools
 from typing import Dict, Tuple
 from azure.storage.blob import BlobClient
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient
 
 LOG_LEVEL_SWORD = 1000
 
@@ -175,7 +177,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", init_log_level=logging.INFO) -> None:
+    def __init__(self, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -184,8 +186,15 @@ class AccessManager():
 
         self.use_azure_storage = os.getenv('USE_AZURE_STORAGE', 'False') == 'True'
         self.azure_blob_service_url = os.getenv('AZURE_BLOB_SERVICE_URL', '')
-        self.azure_sas_token = os.getenv('AZURE_SAS_TOKEN', '')
         self.azure_container_name = os.getenv('AZURE_CONTAINER_NAME', '')
+
+        if self.use_azure_storage:
+            if localdev:
+                credential = os.getenv('AZURE_SAS_TOKEN', '')
+            else:
+                credential = DefaultAzureCredential()
+            self.blob_service_client = BlobServiceClient(account_url=self.azure_blob_service_url, credential=credential)
+            
 
         if state_file_path is not None and load_state:
             self.load_state(state_file_path)
@@ -617,13 +626,14 @@ class AccessManager():
         """Saves the current state of users and groups to a file."""
         if self.use_azure_storage:
             try:
-                blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name=file_path, credential=self.azure_sas_token)
-                
+
+                blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob=file_path)
+
                 state_data = pickle.dumps((self.users, self.groups))
                 blob_client.upload_blob(state_data, overwrite=True)
 
                 # Save log file
-                log_blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name="log.txt", credential=self.azure_sas_token)
+                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
                 with open("log.txt", "rb") as log_file:
                     log_blob_client.upload_blob(log_file, overwrite=True)
                 
@@ -646,7 +656,7 @@ class AccessManager():
         """Loads the state of users and groups from a file."""
         if self.use_azure_storage:
             try:
-                blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name=file_path, credential=self.azure_sas_token)
+                blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob=file_path)
                 
                 if not blob_client.exists():
                     assert False, "Blob does not exist"
@@ -655,7 +665,7 @@ class AccessManager():
                 self.users, self.groups = pickle.loads(state_data)
 
                 # Load log file
-                log_blob_client = BlobClient(account_url=self.azure_blob_service_url, container_name=self.azure_container_name, blob_name="log.txt", credential=self.azure_sas_token)
+                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
                 with open("log.txt", "wb") as log_file:
                     log_file.write(log_blob_client.download_blob().readall())
                 
@@ -964,7 +974,7 @@ def performance_test_access_manager(debug):
 
     output += f"<h4>Time taken to reboot {num_reboots} times: {end_time - start_time:.4f} seconds</h4>"
     manager.delete_logger()
-    
+
     os.environ['USE_AZURE_STORAGE'] = using_azure 
     return output
 
