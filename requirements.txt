@@ -3,3 +3,4 @@ flask_login
 flask_cors
 requests
 azure-storage-blob
+azure-identity
