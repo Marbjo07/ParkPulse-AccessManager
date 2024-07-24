@@ -69,7 +69,7 @@ function createPopup(name, inputFields, onSubmitFunction) {
 function removePopup() {
     let container = document.getElementById('popup-container');
     container.innerHTML = "";
-    
+
     let visualizer = document.getElementById('visualizer');
     visualizer.style.visibility = 'hidden';
 
@@ -91,11 +91,19 @@ async function defaultRequest(method, endpoint, body) {
     try {
         let response = await fetch(`${ACCESS_MANAGER_LOCATION}/${endpoint}`, data);
         var response_data = await response.json();
-        createToast("success", response_data.text);
+
+        let status_code = response.status;
+        
+        if (status_code == 200 || status_code == 201) {
+            createToast("success", response_data.message);
+        }
+        else {
+            createToast("error", response_data.error);
+        }
     }
-    catch (error) {
-        createToast("error", error);
-        createToast("error", response_data.txt);
+    catch (e) {
+        createToast("error", "Internal server error 🗣️🗣️🔥🔥🔥🔥")
+        console.error(e);
     }
 
     return response_data;
@@ -140,7 +148,7 @@ function visualizeUsers(data) {
 
         const userNameDiv = document.createElement('div');
         userNameDiv.className = 'user-name';
-        userNameDiv.textContent = `User Name: ${user.username}`; 
+        userNameDiv.textContent = `User Name: ${user.username}`;
 
         const groupsDiv = document.createElement('div');
         groupsDiv.className = 'groups';
@@ -166,7 +174,7 @@ function visualizeUser(data) {
 
     // Create the container div
     const containerDiv = document.getElementById('container');
-    
+
     // Create and append the user name
     const userName = document.createElement('h2');
     userName.className = "name-header"
@@ -175,17 +183,17 @@ function visualizeUser(data) {
 
     const onlineStatus = document.createElement('p');
     onlineStatus.textContent = (data.online) ? "online" : "offline";
-    containerDiv.appendChild(onlineStatus);  
+    containerDiv.appendChild(onlineStatus);
 
-    
+
     const setupStatus = document.createElement('p');
     setupStatus.textContent = "setup " + ((data.setup_complete) ? "complete" : "inprogress");
-    containerDiv.appendChild(setupStatus);  
+    containerDiv.appendChild(setupStatus);
 
     const groupContainer = document.createElement('div');
     groupContainer.className = 'group-container';
     console.log(data.groups);
-    
+
     data.groups.forEach(groupStr => {
         const group = JSON.parse(groupStr);
 
@@ -220,7 +228,7 @@ function visualizeGroup(data) {
 
     // Create the container div
     const containerDiv = document.getElementById('container');
-    
+
     // Create and append the user name
     const groupName = document.createElement('h2');
     groupName.className = "name-header"
@@ -304,7 +312,7 @@ function createUserPopup() {
         async () => {
             let fields = readFormFields();
             removePopup();
-            
+
             if (fields.password != "" && fields.password_hash != "") {
                 alert("Bro only one at a time");
                 return;
@@ -328,7 +336,7 @@ function setupOnboardingPopup() {
     createPopup(
         "Setup Onboarding Link",
         [
-            {id: "username", prompt: "Username"}
+            { id: "username", prompt: "Username" }
         ],
         () => {
             endpointHandler("/setup_onboarding");
