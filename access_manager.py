@@ -177,7 +177,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
+    def __init__(self, backend_server_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -187,6 +187,8 @@ class AccessManager():
         self.use_azure_storage = os.getenv('USE_AZURE_STORAGE', 'False') == 'True'
         self.azure_blob_service_url = os.getenv('AZURE_BLOB_SERVICE_URL', '')
         self.azure_container_name = os.getenv('AZURE_CONTAINER_NAME', '')
+
+        self.backend_server_location = backend_server_location
 
         if self.use_azure_storage:
             if localdev:
@@ -262,7 +264,7 @@ class AccessManager():
         return True, success_message
     
     @save_state_after
-    def disable_user_session(self, username:str, backend_server_location:str) -> Tuple[bool, str]:
+    def disable_user_session(self, username:str) -> Tuple[bool, str]:
         if not self.user_exists(username):
             error_message = f'User "{username}" doest not exist, cant disable user session'
             self.logger.warning(error_message)
@@ -278,7 +280,7 @@ class AccessManager():
         
         data = json.loads(json.dumps({'username': username, 'auth_str':auth_str}))
 
-        url = f'{backend_server_location}/disable_user_session'
+        url = f'{self.backend_server_location}/disable_user_session'
         response = requests.post(url=url, json=data)
 
         return response.status_code == 200, response.json()

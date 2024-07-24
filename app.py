@@ -17,7 +17,7 @@ else:
     ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
     BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
 
-manager = AccessManager('access_manager.state', localdev=app.debug)
+manager = AccessManager(state_file_path='access_manager.state', backend_server_location=BACKEND_SERVER_LOCATION, localdev=app.debug)
 
 class User(UserMixin):
     def __init__(self, id):
@@ -116,7 +116,7 @@ def disable_user_session():
     data = request.json
     username = data.get('username')
     print(data)
-    success, error_message = manager.disable_user_session(username, BACKEND_SERVER_LOCATION)
+    success, error_message = manager.disable_user_session(username)
     if success:
         return jsonify({"message": "Disabled user session successfully"}), 201
     else:
