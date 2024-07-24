@@ -1,6 +1,3 @@
-const ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
-//const ACCESS_MANAGER_LOCATION = "http://127.0.0.1:5050"
-
 async function sha256(message) {
     const encoder = new TextEncoder();
     const data = encoder.encode(message);

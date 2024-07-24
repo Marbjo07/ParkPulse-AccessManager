@@ -5,14 +5,16 @@ from access_manager import AccessManager, test_access_manager, performance_test_
 import hashlib
 
 # Initialize Flask app
-app = Flask(__name__, static_folder="src")
+app = Flask(__name__, static_folder="src", template_folder="src")
 app.secret_key = '1a05ccb9f2e670310e129ef67b1a05ccb9f2e670310e129ef67b67b1a05ccb929a0bf3'
 login_manager = LoginManager()
 login_manager.init_app(app)
 
 if app.debug:
+    ACCESS_MANAGER_LOCATION = "http://127.0.0.1:5050"
     BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
 else:
+    ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
     BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
 
 manager = AccessManager('access_manager.state', localdev=app.debug)
@@ -65,7 +67,7 @@ def logout():
 @app.route('/control_panel')
 @login_required
 def control_panel():
-    return send_file('src/index.html'), 200
+    return render_template('index.html', access_manager_location=ACCESS_MANAGER_LOCATION), 200
 
 @app.route('/create_user', methods=['POST'])
 @login_required

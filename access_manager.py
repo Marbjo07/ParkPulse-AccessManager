@@ -281,8 +281,8 @@ class AccessManager():
         url = f'{backend_server_location}/disable_user_session'
         response = requests.post(url=url, json=data)
 
-        return True, response.json()
-    
+        return response.status_code == 200, response.json()
+
     @save_state_after
     def setup_onboarding(self, username:str) -> Tuple[bool, str, str]:
         
