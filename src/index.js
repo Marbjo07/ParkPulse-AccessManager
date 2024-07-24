@@ -88,15 +88,14 @@ async function defaultRequest(method, endpoint, body) {
         delete data.body;
     }
 
-    let response = await fetch(`${ACCESS_MANAGER_LOCATION}/${endpoint}`, data);
-
-    let response_data = await response.json();
-
-    if (response.ok) {
-        createToast("success", response_data.message);
+    try {
+        let response = await fetch(`${ACCESS_MANAGER_LOCATION}/${endpoint}`, data);
+        var response_data = await response.json();
+        createToast("success", response_data.text);
     }
-    else {
-        createToast("error", response_data.error);
+    catch (error) {
+        createToast("error", error);
+        createToast("error", response_data.txt);
     }
 
     return response_data;
