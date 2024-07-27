@@ -43,7 +43,7 @@ def setup_custom_logger(name):
     logger = logging.getLogger(name)
     
     logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
+    logger.addHandler(handler)  
     logger.addHandler(screen_handler)
     return logger
 
@@ -125,6 +125,7 @@ class User():
         
         self.online:bool = False
         self.setup_auth_hash: str = setup_auth_hash
+        self.is_resetting_password = True
 
     def check_password(self, password_hash:str) -> bool:
         return self.password_hash == password_hash
@@ -139,14 +140,18 @@ class User():
     def in_group(self, group_name:str) -> bool:
         return group_name in self.groups
 
+    def start_password_reset(self) -> None:
+        self.is_resetting_password = True
+
     def finish_setup(self, password_hash:str, setup_auth_str:str) -> Tuple[bool, str]:
-        if not self.setup_complete:
+        if not self.setup_complete or self.is_resetting_password:
             verfication_hash = hashlib.sha256((self.username + setup_auth_str).encode()).hexdigest()
             if verfication_hash != self.setup_auth_hash:
                 return False, "verfication failed"
             
             self.password_hash = password_hash
             self.setup_complete = True
+            self.is_resetting_password = False
             return True, "success"
         else:
             return False, "setup is already completed"
@@ -169,7 +174,6 @@ class User():
         else:
             return None
 
-
     def toJSON(self) -> str:
         return json.dumps({
             "username": self.username,
@@ -177,7 +181,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, backend_server_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
+    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -189,6 +193,7 @@ class AccessManager():
         self.azure_container_name = os.getenv('AZURE_CONTAINER_NAME', '')
 
         self.backend_server_location = backend_server_location
+        self.frontend_location = frontend_location
 
         if self.use_azure_storage:
             if localdev:
@@ -286,12 +291,22 @@ class AccessManager():
         return response.status_code == 200, response.json()
 
     @save_state_after
-    def setup_onboarding(self, username:str) -> Tuple[bool, str, str]:
+    def setup_onboarding(self, username:str, is_resetting_password:bool=False) -> Tuple[bool, str, str]:
         
         setup_auth_str = secrets.token_hex(32)
 
         setup_auth_hash = hashlib.sha256((username + setup_auth_str).encode()).hexdigest()
         
+        # save password 
+        if is_resetting_password:
+            if not self.user_exists(username):
+                error_message = f'Tried to save password_hash of non-existent user "{username}"'
+                self.logger.critical(error_message)
+                return False, "", error_message
+
+            password_hash = self.users[username].password_hash
+            self.users[username].start_password_reset()
+
         # restart onboarding proccess
         if self.user_exists(username):
             self.logger.warning(f'Restarting onboarding proccess for user {username}')
@@ -306,10 +321,15 @@ class AccessManager():
             # undefined behaviour            
             if not success:
                 self.logger.critical(f"Error occoured when restarting onboarding proccess: {message}")
-                
+        
         success, message = self.create_user(username, setup_auth_hash=setup_auth_hash)
         if not success:
             return False, "", message
+        
+        # insert saved password
+        if is_resetting_password:
+            self.logger.info(f"Setting password hash {password_hash}")
+            self.users[username].password_hash = password_hash
 
         # join previously joined groups
         if joined_groups:
@@ -366,6 +386,55 @@ class AccessManager():
         self.logger.warning(success_message)
         return True, success_message
     
+    def send_slack_notification(self, message:str) -> Tuple[bool, str]:
+        SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
+
+        data = {
+            'text': message
+        }
+
+        response = requests.post(SLACK_WEBHOOK_URL, json=data)
+
+        if response.status_code != 200:
+            error_message = f"Request to Slack returned an error {response.status_code}, the response is:\n{response.text}"
+            self.logger.critical(error_message)
+            return False, error_message
+
+        success_message = f'Successfully notfiyed Bob, he\'s now nagging about: "{message}"' 
+        self.logger.info(success_message)
+        return True, success_message
+
+    def create_setup_link_from_auth_str(self, username:str, setup_auth_str:str) -> str:
+        #http://127.0.0.1:5500/signup?email=marius.bjorhei@gmail.com&token=1
+        link = f'{self.frontend_location}/signup?email={username}&token={setup_auth_str}'
+        self.logger.info(f'Created setup link for user "{username}"')
+        return link
+    
+    def reset_user_password(self, username:str) -> Tuple[bool, str]:
+        if not self.user_exists(username):
+            self.logger.error(f'Tried to reset password for non-existent user "{username}"')
+            return False, "user does not exists"
+
+        reset_user_password_success, setup_auth_str, _ = self.setup_onboarding(username, is_resetting_password=True)
+        
+        if not reset_user_password_success:
+            error_message = f'Unable to reset password for user "{username}"'
+            self.logger.critical(error_message)
+            return False, "unable to reset user password"
+
+        setup_link = self.create_setup_link_from_auth_str(username, setup_auth_str)
+
+        sent_slack_message, response = self.send_slack_notification(f'hey, i saw that "{username}" wanted to reset their password. Could you give them this link? "{setup_link}"')
+        
+        if not sent_slack_message:
+            error_message = f'Unable to notify Bob about password reset for user "{username}"'
+            self.logger.critical(error_message)  
+            return False, "unable to send notification"
+            
+        success_message = f'Successfully completed password reset for user "{username}" and notified Bob'
+        self.logger.info(success_message) 
+        return True, success_message
+
     def list_users(self) -> list[str]:
         self.logger.info(f'Listing all {len(self.users.keys())} users')
         users = list(self.users.values())
@@ -555,7 +624,8 @@ class AccessManager():
         success_message = f'Removed user "{username} from group "{group_name}"'
         self.logger.warning(success_message)
         return True, success_message
-
+    
+    @save_state_after
     def authorize_request(self, username:str, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
         if not self.user_exists(username):
@@ -568,7 +638,7 @@ class AccessManager():
         
         user = self.users[username]
 
-        if not user.setup_complete:
+        if not user.setup_complete and not user.is_resetting_password:
             self.logger.warning(f'User "{username}" setup process is not complete. Could not authorize request')
             return False
         
@@ -586,6 +656,7 @@ class AccessManager():
         self.logger.warning(f'User "{username}" tried to access "{data_id}"')
         return False
     
+    @save_state_after
     def authenticate_user(self, username:str, password:str) -> Tuple[bool, str|None]:
         
         if not self.user_exists(username):
@@ -594,7 +665,8 @@ class AccessManager():
 
         user = self.users[username]
 
-        if not user.setup_complete:
+        # check for uncompleted user but overwriten by password reset
+        if not user.setup_complete and not user.is_resetting_password:
             self.logger.warning(f'User "{username}" setup process is not complete. Could not authenticate')
             return False, None, False
         
@@ -713,7 +785,7 @@ def format_results(result, message, use_emoji=True):
 # Test cases for AccessManager
 def test_access_manager(debug:bool):
     using_azure = os.environ['USE_AZURE_STORAGE']
-    os.environ['USE_AZURE_STORAGE'] = False 
+    os.environ['USE_AZURE_STORAGE'] = "False" 
     manager = AccessManager(state_file_path="access_manager_test.state", load_state=False, name="AccessManagerTest")
     manager.set_logging_level(logging.DEBUG if debug else logging.CRITICAL)
 
@@ -924,7 +996,7 @@ def test_access_manager(debug:bool):
 # Performance tests for AccessManager
 def performance_test_access_manager(debug):
     using_azure = os.environ['USE_AZURE_STORAGE']
-    os.environ['USE_AZURE_STORAGE'] = False 
+    os.environ['USE_AZURE_STORAGE'] = "False" 
     performance_test_log_level = logging.INFO if debug else logging.CRITICAL
     manager = AccessManager(name="AccessManagerPerformanceTest")
     manager.set_logging_level(performance_test_log_level)

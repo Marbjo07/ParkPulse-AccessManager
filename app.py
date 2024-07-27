@@ -3,6 +3,8 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 
 from access_manager import AccessManager, test_access_manager, performance_test_access_manager
 import hashlib
+import os
+import requests
 
 # Initialize Flask app
 app = Flask(__name__, static_folder="src", template_folder="src")
@@ -13,11 +15,13 @@ login_manager.init_app(app)
 if app.debug:
     ACCESS_MANAGER_LOCATION = "http://127.0.0.1:5050"
     BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
+    FRONTEND_LOCATION = "http://127.0.0.1:5500"
 else:
     ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
     BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
+    FRONTEND_LOCATION = "https://parkpulse-web.azurewebsites.net"
 
-manager = AccessManager(state_file_path='access_manager.state', backend_server_location=BACKEND_SERVER_LOCATION, localdev=app.debug)
+manager = AccessManager(state_file_path='access_manager.state', backend_server_location=BACKEND_SERVER_LOCATION, frontend_location=FRONTEND_LOCATION, localdev=app.debug)
 
 class User(UserMixin):
     def __init__(self, id):
@@ -115,7 +119,6 @@ def finish_onboarding():
 def disable_user_session():
     data = request.json
     username = data.get('username')
-    print(data)
     success, error_message = manager.disable_user_session(username)
     if success:
         return jsonify({"message": "Disabled user session successfully"}), 201
@@ -133,6 +136,18 @@ def delete_user():
     else:
         return jsonify({"error": error_message}), 400
     
+@app.route('/request_password_reset', methods=['POST'])
+def request_password_reset():
+    data = request.json
+    
+    if 'username' not in data:
+        return jsonify({'error': 'Invalid request, must provide username'}), 400
+    
+    username = data['username']
+
+    success, response = manager.reset_user_password(username)
+    return jsonify({'message': 'If an account with that email exists, you will receive a password reset email shortly.'}), 200
+
 @app.route('/list_user', methods=["POST"])
 @login_required
 def list_user():
@@ -163,7 +178,11 @@ def list_available_cities():
 @login_required
 def list_group():
     data = request.json
-    group_name = data.get('group_name')
+
+    if 'group_name' not in data:
+        return jsonify({'error': 'Invalid request, must provide group_name'}), 400
+    
+    group_name = data['group_name']
     success, error_message_or_group = manager.list_group(group_name)
     if success:
         return jsonify({"message": f"Listed all properties of group {group_name}", "group": error_message_or_group}), 200
