@@ -181,7 +181,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.INFO) -> None:
+    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.DEBUG) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -270,6 +270,8 @@ class AccessManager():
     
     @save_state_after
     def disable_user_session(self, username:str) -> Tuple[bool, str]:
+        self.logger.info(f'Disabling session for user "{username}"')
+
         if not self.user_exists(username):
             error_message = f'User "{username}" doest not exist, cant disable user session'
             self.logger.warning(error_message)
@@ -288,11 +290,17 @@ class AccessManager():
         url = f'{self.backend_server_location}/disable_user_session'
         response = requests.post(url=url, json=data)
 
-        return response.status_code == 200, response.json()
+        if response.status_code != 200:
+            self.logger.error(f'Unabled to disabled session for user "{username}": {response.json()}')
+            return False, response.json()
+            
+        self.logger.info(f'Successfully disabled session for user "{username}"')
+        return True, response.json()
 
     @save_state_after
     def setup_onboarding(self, username:str, is_resetting_password:bool=False) -> Tuple[bool, str, str]:
-        
+        self.logger.info(f'Setting up onboarding for user "{username}", is resetting password: "{is_resetting_password}"')
+
         setup_auth_str = secrets.token_hex(32)
 
         setup_auth_hash = hashlib.sha256((username + setup_auth_str).encode()).hexdigest()
@@ -309,7 +317,7 @@ class AccessManager():
 
         # restart onboarding proccess
         if self.user_exists(username):
-            self.logger.warning(f'Restarting onboarding proccess for user {username}')
+            self.logger.warning(f'Restarting onboarding proccess for user "{username}"')
 
             user = self.users[username]
             # copy joined groups
@@ -340,7 +348,7 @@ class AccessManager():
 
                 # undefined behaviour
                 if not success:
-                    self.logger.critical(f'User {username} unable to rejoin group {group_name}, error: {message}')
+                    self.logger.critical(f'User "{username}" unable to rejoin group {group_name}, error: {message}')
 
         success_message = f'Onboarding token created'
         self.logger.info(success_message)
@@ -348,6 +356,8 @@ class AccessManager():
     
     @save_state_after
     def finish_onboarding(self, username:str, password:str, setup_auth_str:str) -> Tuple[bool, str]:
+        self.logger.info(f'Finishing onboarding for user "{username}"')
+
         if not self.user_exists(username):
             error_message = f'User "{username}" does not exist, coult not finish onboarding'
             self.logger.error(error_message)
@@ -369,6 +379,8 @@ class AccessManager():
 
     @save_state_after
     def delete_group(self, group_name:str) -> Tuple[bool, str]:
+        self.logger.info(f'Deleting group "{group_name}"')
+
         if not self.group_exists(group_name):
             error_message = f'Tried to delete non-existent group "{group_name}"'
             self.logger.error(error_message)
@@ -387,6 +399,8 @@ class AccessManager():
         return True, success_message
     
     def send_slack_notification(self, message:str) -> Tuple[bool, str]:
+        self.logger.info(f'Sending slack notification "{message}"')
+
         SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
 
         data = {
@@ -401,7 +415,6 @@ class AccessManager():
             return False, error_message
 
         success_message = f'Successfully notfiyed Bob, he\'s now nagging about: "{message}"' 
-        self.logger.info(success_message)
         return True, success_message
 
     def create_setup_link_from_auth_str(self, username:str, setup_auth_str:str) -> str:
@@ -411,6 +424,8 @@ class AccessManager():
         return link
     
     def reset_user_password(self, username:str) -> Tuple[bool, str]:
+        self.logger.info(f'Starting password reset for user "{username}"')
+
         if not self.user_exists(username):
             self.logger.error(f'Tried to reset password for non-existent user "{username}"')
             return False, "user does not exists"
@@ -518,6 +533,8 @@ class AccessManager():
     
     @save_state_after
     def create_group(self, group_name:str, permissions:Dict[str, list[str]]) -> None:
+        self.logger.info(f'Creating group "{group_name}"')
+
         if self.group_exists(group_name):
             self.logger.warning(f'Tried to create existing group "{group_name}"')
             return
@@ -533,6 +550,8 @@ class AccessManager():
 
     @save_state_after
     def add_user_to_group(self, username:str, group_name:str) -> Tuple[bool, str]:
+        self.logger.info(f'Adding user "{username}" to group "{group_name}"')
+
         if not self.user_exists(username):
             error_message = f'Tried to add non-existent user "{username}" to group {group_name}'
             self.logger.error(error_message)
@@ -553,6 +572,8 @@ class AccessManager():
     
     @save_state_after
     def add_permission_to_group(self, group_name:str, permission:Tuple[str, str]) -> Tuple[bool, str]:
+        self.logger.info(f'Adding permission "{permission}" to group "{group_name}"')
+
         if not self.group_exists(group_name):
             error_message = f'Group "{group_name}" does not exist, could not add permission "{permission}"'
             self.logger.error(error_message)
@@ -574,6 +595,8 @@ class AccessManager():
     
     @save_state_after
     def remove_permission_from_group(self, group_name:str, permission:Tuple[str, str]) -> Tuple[bool, str]:
+        self.logger.info(f'Removing permission "{permission}" from group "{group_name}"')
+
         if not self.group_exists(group_name):
             error_message = f'Group "{group_name}" does not exist, could not remove permission "{permission}"'
             self.logger.error(error_message)
@@ -609,7 +632,7 @@ class AccessManager():
         group = self.groups[group_name]
 
         if not user.in_group(group_name):
-            error_message = f'User {username} is not member of group {group_name}'
+            error_message = f'User "{username}"is not member of group {group_name}'
             self.logger.warning(error_message)
             return False, error_message
         
@@ -621,13 +644,15 @@ class AccessManager():
         self.groups[group_name].remove_member(username)
         self.users[username].groups.remove(group_name)
 
-        success_message = f'Removed user "{username} from group "{group_name}"'
+        success_message = f'Removed user "{username}" from group "{group_name}"'
         self.logger.warning(success_message)
         return True, success_message
     
     @save_state_after
     def authorize_request(self, username:str, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
+        self.logger.info(f'User "{username}" requested access to "{request}"')
+
         if not self.user_exists(username):
             self.logger.error(f'Tried to authorize request for non-existent user "{username}"')
             return False

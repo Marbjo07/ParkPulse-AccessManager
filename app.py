@@ -21,7 +21,13 @@ else:
     BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
     FRONTEND_LOCATION = "https://parkpulse-web.azurewebsites.net"
 
-manager = AccessManager(state_file_path='access_manager.state', backend_server_location=BACKEND_SERVER_LOCATION, frontend_location=FRONTEND_LOCATION, localdev=app.debug)
+import logging
+manager = AccessManager(state_file_path='access_manager.state', 
+                        backend_server_location=BACKEND_SERVER_LOCATION, 
+                        frontend_location=FRONTEND_LOCATION, 
+                        localdev=app.debug,
+                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
+
 
 class User(UserMixin):
     def __init__(self, id):
@@ -195,7 +201,6 @@ def create_group():
     data = request.json
     group_name = data.get('group_name')
     manager.create_group(group_name, {})
-    return jsonify({"message": "Group created successfully"}), 201
 
 @app.route('/add_user_to_group', methods=['POST'])
 @login_required
