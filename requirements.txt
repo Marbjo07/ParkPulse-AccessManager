@@ -1,6 +1,7 @@
-flask
+Flask==3.0.3
+Flask-Cors==4.0.1
+requests==2.32.3
+gunicorn==22.0.0
 flask_login
-flask_cors
-requests
 azure-storage-blob
 azure-identity

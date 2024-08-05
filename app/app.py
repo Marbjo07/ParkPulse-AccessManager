@@ -1,54 +1,66 @@
 from flask import Flask, redirect, url_for, request, render_template, send_file, jsonify
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 
-from access_manager import AccessManager, test_access_manager, performance_test_access_manager
-import hashlib
+from app.access_manager import AccessManager, test_access_manager, performance_test_access_manager
+
 import os
-import requests
+import sys
+import signal
+import hashlib
+import logging
 
 # Initialize Flask app
 app = Flask(__name__, static_folder="src", template_folder="src")
-app.secret_key = '1a05ccb9f2e670310e129ef67b1a05ccb9f2e670310e129ef67b67b1a05ccb929a0bf3'
+app.secret_key = 'awadawg3r3:Q#"=)?AD(GN#"NAl)adt4""!'
 login_manager = LoginManager()
 login_manager.init_app(app)
-
-if app.debug:
-    ACCESS_MANAGER_LOCATION = "http://127.0.0.1:5050"
-    BACKEND_SERVER_LOCATION = "http://127.0.0.1:5000"
-    FRONTEND_LOCATION = "http://127.0.0.1:5500"
-else:
-    ACCESS_MANAGER_LOCATION = "https://parkpulse-accessmanager.azurewebsites.net"
-    BACKEND_SERVER_LOCATION = "https://parkpulse-api.azurewebsites.net"
-    FRONTEND_LOCATION = "https://parkpulse-web.azurewebsites.net"
-
-import logging
-manager = AccessManager(state_file_path='access_manager.state', 
-                        backend_server_location=BACKEND_SERVER_LOCATION, 
-                        frontend_location=FRONTEND_LOCATION, 
-                        localdev=app.debug,
-                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
 
 
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
 
-# User data
-users = {
-    'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
-}
+
+FRONTEND_LOCATION = "http://localhost"
+BACKEND_SERVER_LOCATION = "http://localhost"
+ACCESS_MANAGER_LOCATION = "http://localhost:5002"
+
+if os.environ['FLASK_ENV'] == "development":
+    app.config['PROPAGATE_EXCEPTIONS'] = True
+        
+
+    manager = AccessManager(state_file_path='access_manager.state', 
+                        backend_server_location=BACKEND_SERVER_LOCATION, 
+                        frontend_location=FRONTEND_LOCATION, 
+                        localdev=app.debug,
+                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
+
+    # User data
+    users = {
+        'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
+    }
+else:
+    manager = AccessManager(state_file_path='access_manager.state', 
+                        backend_server_location=BACKEND_SERVER_LOCATION, 
+                        frontend_location=FRONTEND_LOCATION, 
+                        localdev=True,
+                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
+
+
+
+
+
 
 @login_manager.user_loader
 def load_user(user_id):
+    if os.environ['FLASK_ENV'] != "development":
+        print("VIOLATION!!! tried to check login creds in production.")
+        return None
+    
     for username, user_data in users.items():
         if user_data['user_obj'].id == user_id:
             return user_data['user_obj']
     return None
-
-@app.route("/")
-def _():
-    return redirect(url_for('login'))
-
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -64,7 +76,7 @@ def login():
 
             return redirect(url_for('control_panel'))
         
-        return 'Invalid credentials'
+        return jsonify({'error': 'Invalid credentials'}), 401
     
     return send_file('src/login/login.html')
 
@@ -200,7 +212,13 @@ def list_group():
 def create_group():
     data = request.json
     group_name = data.get('group_name')
-    manager.create_group(group_name, {})
+    success, response = manager.create_group(group_name, {})
+    if success:
+        return jsonify({"message": f"Created group {group_name}"}), 201
+    else:
+        return jsonify({"error": response}), 400
+
+    
 
 @app.route('/add_user_to_group', methods=['POST'])
 @login_required
@@ -330,6 +348,14 @@ def run_perf_tests():
     running_perf_tests = False
     return output
 
-# Run the app
-if __name__ == '__main__':
-    app.run(debug=True, port=5050)
+
+def handle_sigterm(*args):
+    print("Received SIGTERM, shutting down gracefully...")
+    sys.exit(0)
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    if os.environ['FLASK_ENV'] == 'production':
+        app.run(app)
+    else:
+        app.run(app, debug=True)

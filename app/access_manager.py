@@ -10,7 +10,6 @@ import secrets
 import requests
 import functools
 from typing import Dict, Tuple
-from azure.storage.blob import BlobClient
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
@@ -36,7 +35,7 @@ class ColoredFormatter(logging.Formatter):
 def setup_custom_logger(name):
     formatter = ColoredFormatter(fmt='[%(asctime)s.%(msecs)03d | %(levelname)s]: %(message)s',
                                   datefmt='%Y-%m-%d | %H:%M:%S')
-    handler = logging.FileHandler('log.txt', mode='w')
+    handler = logging.FileHandler('app/log.txt', mode='w')
     handler.setFormatter(formatter)
     screen_handler = logging.StreamHandler(stream=sys.stdout)
     screen_handler.setFormatter(formatter)
@@ -532,21 +531,27 @@ class AccessManager():
         return group_name in self.groups
     
     @save_state_after
-    def create_group(self, group_name:str, permissions:Dict[str, list[str]]) -> None:
+    def create_group(self, group_name:str, permissions:Dict[str, list[str]]) -> Tuple[bool, str]:
         self.logger.info(f'Creating group "{group_name}"')
 
         if self.group_exists(group_name):
-            self.logger.warning(f'Tried to create existing group "{group_name}"')
-            return
+            error_message = f'Tried to create existing group "{group_name}"'
+            self.logger.warning(error_message)
+            return False, error_message
         
         new_group = Group(group_name, permissions)
 
         self.groups.update({group_name: new_group })
 
         if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(f'Created group "{group_name}". Permissions: {str(new_group.permissions)}')
+            success_message = f'Created group "{group_name}". Permissions: {str(new_group.permissions)}'
+            self.logger.debug(success_message)
         else:
-            self.logger.info(f'Created group "{group_name}". Permissions: {new_group.count_permissions()}')
+            success_message = f'Created group "{group_name}". Permissions: {new_group.count_permissions()}'
+            self.logger.info(success_message)
+
+        return True, success_message
+        
 
     @save_state_after
     def add_user_to_group(self, username:str, group_name:str) -> Tuple[bool, str]:
@@ -733,7 +738,7 @@ class AccessManager():
 
                 # Save log file
                 log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
-                with open("log.txt", "rb") as log_file:
+                with open("app/log.txt", "rb") as log_file:
                     log_blob_client.upload_blob(log_file, overwrite=True)
                 
                 self.logger.debug(f'Successfully saved state and log to Azure Blob Storage: {file_path}')
@@ -744,7 +749,7 @@ class AccessManager():
                 with open(file_path, 'wb') as file:
                     pickle.dump((self.users, self.groups), file)
                 
-                with open("log.txt", "rb") as log_file:
+                with open("app/log.txt", "rb") as log_file:
                     log_data = log_file.read()
                 
                 self.logger.debug(f'Successfully saved state and log to {file_path}')
@@ -764,8 +769,8 @@ class AccessManager():
                 self.users, self.groups = pickle.loads(state_data)
 
                 # Load log file
-                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
-                with open("log.txt", "wb") as log_file:
+                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="1log.txt")
+                with open("app/log.txt", "wb") as log_file:
                     log_file.write(log_blob_client.download_blob().readall())
                 
                 self.logger.info(f'Successfully loaded state and log from Azure Blob Storage: {file_path}')
@@ -1062,7 +1067,7 @@ def performance_test_access_manager(debug):
 
     output += f"<h4>Time taken to authorize {num_users} requests: {end_time - start_time:.4f} seconds</h4>"
 
-    manager.save_state("perf_test_save.state")
+    manager.save_state("app/perf_test_save.state")
     # Performance test for rebooting
     start_time = time.time()
     for i in range(num_reboots):
