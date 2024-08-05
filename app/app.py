@@ -1,7 +1,7 @@
 from flask import Flask, redirect, url_for, request, render_template, send_file, jsonify
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 
-from app.access_manager import AccessManager, test_access_manager, performance_test_access_manager
+from access_manager import AccessManager, test_access_manager, performance_test_access_manager
 
 import os
 import sys
@@ -27,12 +27,10 @@ ACCESS_MANAGER_LOCATION = "http://localhost:5002"
 
 if os.environ['FLASK_ENV'] == "development":
     app.config['PROPAGATE_EXCEPTIONS'] = True
-        
 
     manager = AccessManager(state_file_path='access_manager.state', 
                         backend_server_location=BACKEND_SERVER_LOCATION, 
                         frontend_location=FRONTEND_LOCATION, 
-                        localdev=app.debug,
                         init_log_level=logging.INFO if app.debug else logging.DEBUG)
 
     # User data
@@ -43,7 +41,6 @@ else:
     manager = AccessManager(state_file_path='access_manager.state', 
                         backend_server_location=BACKEND_SERVER_LOCATION, 
                         frontend_location=FRONTEND_LOCATION, 
-                        localdev=True,
                         init_log_level=logging.INFO if app.debug else logging.DEBUG)
 
 

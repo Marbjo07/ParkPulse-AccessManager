@@ -35,7 +35,7 @@ class ColoredFormatter(logging.Formatter):
 def setup_custom_logger(name):
     formatter = ColoredFormatter(fmt='[%(asctime)s.%(msecs)03d | %(levelname)s]: %(message)s',
                                   datefmt='%Y-%m-%d | %H:%M:%S')
-    handler = logging.FileHandler('app/log.txt', mode='w')
+    handler = logging.FileHandler('log.txt', mode='w')
     handler.setFormatter(formatter)
     screen_handler = logging.StreamHandler(stream=sys.stdout)
     screen_handler.setFormatter(formatter)
@@ -180,7 +180,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", localdev=False, init_log_level=logging.DEBUG) -> None:
+    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", init_log_level=logging.DEBUG) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -195,10 +195,7 @@ class AccessManager():
         self.frontend_location = frontend_location
 
         if self.use_azure_storage:
-            if localdev:
-                credential = os.getenv('AZURE_SAS_TOKEN', '')
-            else:
-                credential = DefaultAzureCredential()
+            credential = DefaultAzureCredential()
             self.blob_service_client = BlobServiceClient(account_url=self.azure_blob_service_url, credential=credential)
             
 
@@ -738,7 +735,7 @@ class AccessManager():
 
                 # Save log file
                 log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
-                with open("app/log.txt", "rb") as log_file:
+                with open("log.txt", "rb") as log_file:
                     log_blob_client.upload_blob(log_file, overwrite=True)
                 
                 self.logger.debug(f'Successfully saved state and log to Azure Blob Storage: {file_path}')
@@ -749,7 +746,7 @@ class AccessManager():
                 with open(file_path, 'wb') as file:
                     pickle.dump((self.users, self.groups), file)
                 
-                with open("app/log.txt", "rb") as log_file:
+                with open("log.txt", "rb") as log_file:
                     log_data = log_file.read()
                 
                 self.logger.debug(f'Successfully saved state and log to {file_path}')
@@ -769,8 +766,8 @@ class AccessManager():
                 self.users, self.groups = pickle.loads(state_data)
 
                 # Load log file
-                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="1log.txt")
-                with open("app/log.txt", "wb") as log_file:
+                log_blob_client = self.blob_service_client.get_blob_client(container=self.azure_container_name, blob="log.txt")
+                with open("log.txt", "wb") as log_file:
                     log_file.write(log_blob_client.download_blob().readall())
                 
                 self.logger.info(f'Successfully loaded state and log from Azure Blob Storage: {file_path}')
