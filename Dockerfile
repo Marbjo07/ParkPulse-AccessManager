@@ -22,12 +22,19 @@ RUN adduser \
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
     python -m pip install -r requirements.txt
+    
+COPY . .
+
+RUN chown appuser:appuser log.txt
+RUN chmod 664 log.txt
+
+RUN chown appuser:appuser access_manager.state 
+RUN chmod 664 access_manager.state 
 
 # Switch to the non-privileged user to run the application.
 USER appuser
 
 # Copy the source code into the container.
-COPY . .
 COPY gunicorn_config.py /app/gunicorn_config.py
 
 # Expose the port that the application listens on.
