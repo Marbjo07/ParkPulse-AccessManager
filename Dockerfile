@@ -28,7 +28,7 @@ USER appuser
 
 # Copy the source code into the container.
 COPY . .
-COPY ./gunicorn_config.py .
+COPY gunicorn_config.py /app/gunicorn_config.py
 
 # Expose the port that the application listens on.
 EXPOSE 5000
