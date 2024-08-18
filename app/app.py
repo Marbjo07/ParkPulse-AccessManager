@@ -26,7 +26,7 @@ users = {
 if os.environ['FLASK_ENV'] == "development":
     app.config['PROPAGATE_EXCEPTIONS'] = True
     FRONTEND_URL = "http://web:5000"
-    BACKEND_SERVER_URL = "http://api:5000"
+    BACKEND_SERVER_URL = "http://web:5000"
     ACCESS_MANAGER_URL = "http://localhost:5002"
 
     manager = AccessManager(state_file_path='access_manager.state', 
@@ -36,7 +36,7 @@ if os.environ['FLASK_ENV'] == "development":
     
 else:
     FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
-    BACKEND_SERVER_URL = "https://parkpulse-api.azurewebsites.net/"
+    BACKEND_SERVER_URL = "https://parkpulse-web.azurewebsites.net/"
     ACCESS_MANAGER_URL = os.environ['ACCESS_MANAGER_URL']
 
     manager = AccessManager(state_file_path='access_manager.state', 
