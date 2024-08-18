@@ -37,7 +37,7 @@ if os.environ['FLASK_ENV'] == "development":
 else:
     FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
     BACKEND_SERVER_URL = "https://parkpulse-api.azurewebsites.net/"
-    ACCESS_MANAGER_URL = ""
+    ACCESS_MANAGER_URL = os.environ['ACCESS_MANAGER_URL']
 
     manager = AccessManager(state_file_path='access_manager.state', 
                         backend_server_url=BACKEND_SERVER_URL, 
