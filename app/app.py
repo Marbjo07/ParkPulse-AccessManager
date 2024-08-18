@@ -19,7 +19,10 @@ login_manager.init_app(app)
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
-
+# User data
+users = {
+    'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
+}
 if os.environ['FLASK_ENV'] == "development":
     app.config['PROPAGATE_EXCEPTIONS'] = True
     FRONTEND_URL = "http://web:5000"
@@ -30,10 +33,7 @@ if os.environ['FLASK_ENV'] == "development":
                         backend_server_url=BACKEND_SERVER_URL, 
                         frontend_url=FRONTEND_URL, 
                         init_log_level=logging.INFO if app.debug else logging.DEBUG)
-    # User data
-    users = {
-        'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
-    }
+    
 else:
     FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
     BACKEND_SERVER_URL = "https://parkpulse-api.azurewebsites.net/"
