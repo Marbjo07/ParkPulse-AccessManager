@@ -425,6 +425,11 @@ class AccessManager():
 
         if not self.user_exists(username):
             self.logger.error(f'Tried to reset password for non-existent user "{username}"')
+            sent_slack_message, response = self.send_slack_notification(f'TF unknown user "{username}" wanted to reset their password?')
+
+            if not sent_slack_message:
+                self.logger.critical(f'Faild to notify of admin of password reset error')
+
             return False, "user does not exists"
 
         reset_user_password_success, setup_auth_str, _ = self.setup_onboarding(username, is_resetting_password=True)
