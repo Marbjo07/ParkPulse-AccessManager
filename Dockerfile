@@ -25,8 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     
 COPY . .
     
-RUN [ ! -f log.txt ] && touch log.txt
-RUN [ ! -f access_manager.state  ] && touch access_manager.state 
+RUN touch log.txt access_manager.state 
 
 RUN chown appuser:appuser log.txt
 RUN chmod 664 log.txt
