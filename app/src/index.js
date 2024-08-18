@@ -89,7 +89,7 @@ async function defaultRequest(method, endpoint, body) {
     }
 
     try {
-        let response = await fetch(`${ACCESS_MANAGER_LOCATION}/${endpoint}`, data);
+        let response = await fetch(`${ACCESS_MANAGER_URL}/${endpoint}`, data);
         var response_data = await response.json();
 
         let status_code = response.status;

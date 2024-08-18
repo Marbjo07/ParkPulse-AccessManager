@@ -180,7 +180,7 @@ class User():
         })            
 
 class AccessManager():
-    def __init__(self, backend_server_location:str=None, frontend_location:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", init_log_level=logging.DEBUG) -> None:
+    def __init__(self, backend_server_url:str=None, frontend_url:str=None, state_file_path:str=None, load_state:bool=True, name:str="AccessManager", init_log_level=logging.DEBUG) -> None:
         self.users: Dict[str, User] = {}
         self.groups: Dict[str, Group] = {}
 
@@ -191,8 +191,8 @@ class AccessManager():
         self.azure_blob_service_url = os.getenv('AZURE_BLOB_SERVICE_URL', '')
         self.azure_container_name = os.getenv('AZURE_CONTAINER_NAME', '')
 
-        self.backend_server_location = backend_server_location
-        self.frontend_location = frontend_location
+        self.backend_server_url = backend_server_url
+        self.frontend_url = frontend_url
 
         if self.use_azure_storage:
             credential = DefaultAzureCredential()
@@ -283,7 +283,7 @@ class AccessManager():
         
         data = json.loads(json.dumps({'username': username, 'auth_str':auth_str}))
 
-        url = f'{self.backend_server_location}/disable_user_session'
+        url = f'{self.backend_server_url}/disable_user_session'
         response = requests.post(url=url, json=data)
 
         if response.status_code != 200:
@@ -312,6 +312,7 @@ class AccessManager():
             self.users[username].start_password_reset()
 
         # restart onboarding proccess
+        joined_groups = None
         if self.user_exists(username):
             self.logger.warning(f'Restarting onboarding proccess for user "{username}"')
 
@@ -324,7 +325,7 @@ class AccessManager():
 
             # undefined behaviour            
             if not success:
-                self.logger.critical(f"Error occoured when restarting onboarding proccess: {message}")
+                self.logger.critical(f"Error occurred when restarting onboarding proccess: {message}")
         
         success, message = self.create_user(username, setup_auth_hash=setup_auth_hash)
         if not success:
@@ -355,7 +356,7 @@ class AccessManager():
         self.logger.info(f'Finishing onboarding for user "{username}"')
 
         if not self.user_exists(username):
-            error_message = f'User "{username}" does not exist, coult not finish onboarding'
+            error_message = f'User "{username}" does not exist, could not finish onboarding'
             self.logger.error(error_message)
             return False, error_message
         
@@ -411,11 +412,11 @@ class AccessManager():
             return False, error_message
 
         success_message = f'Successfully notfiyed Bob, he\'s now nagging about: "{message}"' 
-        return True, success_message
+        return True, success_message 
 
     def create_setup_link_from_auth_str(self, username:str, setup_auth_str:str) -> str:
         #http://127.0.0.1:5500/signup?email=marius.bjorhei@gmail.com&token=1
-        link = f'{self.frontend_location}/signup?email={username}&token={setup_auth_str}'
+        link = f'{self.frontend_url}/signup?email={username}&token={setup_auth_str}'
         self.logger.info(f'Created setup link for user "{username}"')
         return link
     

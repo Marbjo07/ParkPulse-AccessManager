@@ -31,8 +31,6 @@
             let password = document.getElementById("password").value;
             
             password = await sha256(password)
-            console.log("Username:", username);
-            console.log("Password:", password);
 
             let data = {
                 "username": username,

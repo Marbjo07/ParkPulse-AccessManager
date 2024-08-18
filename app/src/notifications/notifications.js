@@ -29,12 +29,17 @@ const createToast = (type, message) => {
 	// Getting the icon and text for the toast based on the id passed
 	const { icon, text } = toastDetails[type];
 	const toast = $.createElement("li"); // Creating a new 'li' element for the toast
-	toast.className = `toast ${type}` // Setting the classes for the toast
+	toast.className = `toast ${type}`; // Setting the classes for the toast
 	// Setting the inner HTML for the toast
 	toast.innerHTML = `<div class="column">
                         <i class="fa ${icon}"></i>
                         <span>${message}</span>
-                        </div>`
+                        </div>`;
+
+	toast.onclick = (e) => {
+		navigator.clipboard.writeText(message);
+	}
+
 	notifications.appendChild(toast); // Append the toast to the notification ul
 	// Setting a timeout to remove the toast after the specified duration
 	toast.timeoutId = setTimeout(() => removeToast(toast), toastDetails.timer)

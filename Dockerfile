@@ -41,6 +41,8 @@ COPY gunicorn_config.py /app/gunicorn_config.py
 
 # Expose the port that the application listens on.
 EXPOSE 5000
+
 ENV PYTHONPATH=/usr/src/app/app
+
 # Run the application.
 CMD ["gunicorn", "-w", "1", "-c", "gunicorn_config.py", "app:app", "-b", ":5000"]

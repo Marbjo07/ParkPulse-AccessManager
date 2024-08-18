@@ -20,40 +20,34 @@ class User(UserMixin):
     def __init__(self, id):
         self.id = id
 
-
-FRONTEND_LOCATION = "http://localhost"
-BACKEND_SERVER_LOCATION = "http://localhost"
-ACCESS_MANAGER_LOCATION = "http://localhost:5002"
-
 if os.environ['FLASK_ENV'] == "development":
     app.config['PROPAGATE_EXCEPTIONS'] = True
+    FRONTEND_URL = "http://web:5000"
+    BACKEND_SERVER_URL = "http://api:5000"
+    ACCESS_MANAGER_URL = "http://localhost:5002"
 
     manager = AccessManager(state_file_path='access_manager.state', 
-                        backend_server_location=BACKEND_SERVER_LOCATION, 
-                        frontend_location=FRONTEND_LOCATION, 
+                        backend_server_url=BACKEND_SERVER_URL, 
+                        frontend_url=FRONTEND_URL, 
                         init_log_level=logging.INFO if app.debug else logging.DEBUG)
-
     # User data
     users = {
         'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
     }
 else:
+    FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
+    BACKEND_SERVER_URL = "https://parkpulse-api.azurewebsites.net/"
+    ACCESS_MANAGER_URL = ""
+
     manager = AccessManager(state_file_path='access_manager.state', 
-                        backend_server_location=BACKEND_SERVER_LOCATION, 
-                        frontend_location=FRONTEND_LOCATION, 
+                        backend_server_url=BACKEND_SERVER_URL, 
+                        frontend_url=FRONTEND_URL, 
                         init_log_level=logging.INFO if app.debug else logging.DEBUG)
-
-
-
 
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    if os.environ['FLASK_ENV'] != "development":
-        print("VIOLATION!!! tried to check login creds in production.")
-        return None
-    
     for username, user_data in users.items():
         if user_data['user_obj'].id == user_id:
             return user_data['user_obj']
@@ -86,7 +80,7 @@ def logout():
 @app.route('/control_panel')
 @login_required
 def control_panel():
-    return render_template('index.html', access_manager_location=ACCESS_MANAGER_LOCATION), 200
+    return render_template('index.html', access_manager_url=ACCESS_MANAGER_URL), 200
 
 @app.route('/create_user', methods=['POST'])
 @login_required
@@ -94,7 +88,7 @@ def create_user():
     data = request.json
     username = data.get('username')
     password = data.get('password_hash') # treat password_hash as password
-
+    
     success, message = manager.create_user(username, password)
     if success:
         return jsonify({"message": message}), 201
@@ -108,9 +102,10 @@ def setup_onboarding():
     username = data.get('username')
     
     # it restarts the proccess if user already exists
-    success, message, setup_auth_str = manager.setup_onboarding(username)
+    success, setup_auth_str, message = manager.setup_onboarding(username)
     if success:
-        return jsonify({"message": message, "setup_auth_str": setup_auth_str}), 201
+        onboarding_link = manager.create_setup_link_from_auth_str(username, setup_auth_str)
+        return jsonify({"message": onboarding_link}), 201
     else:
         return jsonify({"error": message}), 400
 
@@ -214,8 +209,6 @@ def create_group():
         return jsonify({"message": f"Created group {group_name}"}), 201
     else:
         return jsonify({"error": response}), 400
-
-    
 
 @app.route('/add_user_to_group', methods=['POST'])
 @login_required

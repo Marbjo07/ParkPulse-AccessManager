@@ -23,15 +23,23 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
     python -m pip install -r requirements.txt
 
+COPY . .
+
+RUN touch log.txt access_manager.state 
+
+RUN chown appuser:appuser log.txt
+RUN chmod 664 log.txt
+
+RUN chown appuser:appuser access_manager.state 
+RUN chmod 664 access_manager.state 
+
 # Switch to the non-privileged user to run the application.
 USER appuser
-
-COPY . .
 
 # Expose the port that the application listens on.
 EXPOSE 5000
 
-ENV PYTHONPATH=/usr/src/app/app
-
 # Run the application.
-CMD ["gunicorn", "-w", "1", "-c", "gunicorn_config.py", "app:app", "-b", ":5000"]
+ENV FLASK_APP=app/app.py
+ENV PYTHONPATH=/usr/src/app/app
+CMD ["flask", "run", "--host=0.0.0.0", "--debug"]
