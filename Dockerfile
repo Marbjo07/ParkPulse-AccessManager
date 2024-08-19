@@ -25,13 +25,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     
 COPY . .
     
-RUN touch log.txt access_manager.state 
-
-RUN chown appuser:appuser log.txt
-RUN chmod 664 log.txt
-
-RUN chown appuser:appuser access_manager.state 
-RUN chmod 664 access_manager.state 
+RUN touch log.txt access_manager.state && \
+    chown appuser:appuser log.txt access_manager.state && \
+    chmod 664 log.txt access_manager.state
 
 # Switch to the non-privileged user to run the application.
 USER appuser

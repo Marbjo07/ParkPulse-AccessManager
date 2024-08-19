@@ -10,10 +10,12 @@ import secrets
 import requests
 import functools
 from typing import Dict, Tuple
-from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
+from azure.identity import DefaultAzureCredential
+from azure.communication.email import EmailClient
 
 LOG_LEVEL_SWORD = 1000
+POLLER_WAIT_TIME = 10
 
 # Define color codes
 LOG_COLORS = {
@@ -333,7 +335,7 @@ class AccessManager():
         
         # insert saved password
         if is_resetting_password:
-            self.logger.info(f"Setting password hash {password_hash}")
+            self.logger.info(f"Setting password hash {password_hash[:10]}")
             self.users[username].password_hash = password_hash
 
         # join previously joined groups
@@ -396,7 +398,7 @@ class AccessManager():
         return True, success_message
     
     def send_slack_notification(self, message:str) -> Tuple[bool, str]:
-        self.logger.info(f'Sending slack notification "{message}"')
+        self.logger.info(f'Sending slack notification "{message[:10]}...{message[-10:]}"')
 
         SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
 
@@ -413,6 +415,80 @@ class AccessManager():
 
         success_message = f'Successfully notfiyed Bob, he\'s now nagging about: "{message}"' 
         return True, success_message 
+
+    # username is actually an email
+    def get_name_from_username(self, username:str) -> str:
+        self.logger.debug(f'Getting user\'s name from username "{username}"')
+        
+        name = username.split("@")[0]
+        self.logger.debug(f'Name: "{name}"')
+        
+        name = name.replace('.', ' ')
+        self.logger.debug(f'Name: "{name}"')
+
+        name = name.title()
+        self.logger.debug(f'Name: "{name}"')
+
+        return name
+
+    def send_password_reset_email(self, username:str, password_reset_link:str) -> Tuple[bool, str]:
+        recipient_name = self.get_name_from_username(username)
+
+        try:
+            # fill template
+            message = {
+                "content": {
+                    "subject": "Password Reset Request",
+                    "plainText": f"""
+Hi {recipient_name},
+
+There was a request to change your password!
+
+If you did not make this request then please ignore this email.
+
+Otherwise, please click this link to change your password: {password_reset_link}
+""",
+                },
+                "recipients": {
+                    "to": [
+                        {
+                            "address": username,
+                            "displayName": recipient_name
+                        }
+                    ]
+                },
+                "senderAddress": os.environ['EMAIL_SENDER_ADDRESS']
+            }
+
+            # create email client and send 
+            email_client = EmailClient.from_connection_string(os.environ['CONNECTION_STRING'])
+            poller = email_client.begin_send(message)
+
+            # wait for email status
+            time_elapsed = 0
+            while not poller.done():
+                self.logger.debug("Email send poller status: " + poller.status())
+
+                poller.wait(POLLER_WAIT_TIME)
+                time_elapsed += POLLER_WAIT_TIME
+
+                if time_elapsed > 18 * POLLER_WAIT_TIME:
+                    raise RuntimeError("Polling timed out.")
+
+            if poller.result()["status"] == "Succeeded":
+                self.logger.info(f"email sent (operation id: {poller.result()['id']})")
+            else:
+                raise RuntimeError(str(poller.result()["error"]))
+
+        except Exception as ex:
+            self.logger.error(ex)
+            error_message = f'Faild to send password reset email to "{username}"'
+            self.logger.error(error_message)
+            return error_message, False
+        
+        success_message = f'Successfully sent password reset email to "{username}"' 
+        self.logger.info(success_message)
+        return success_message, True
 
     def create_setup_link_from_auth_str(self, username:str, setup_auth_str:str) -> str:
         #http://127.0.0.1:5500/signup?email=marius.bjorhei@gmail.com&token=1
@@ -439,15 +515,23 @@ class AccessManager():
             self.logger.critical(error_message)
             return False, "unable to reset user password"
 
-        setup_link = self.create_setup_link_from_auth_str(username, setup_auth_str)
+        password_reset_link = self.create_setup_link_from_auth_str(username, setup_auth_str)
 
-        sent_slack_message, response = self.send_slack_notification(f'hey, i saw that "{username}" wanted to reset their password. Could you give them this link? "{setup_link}"')
+        sent_email_success, response = self.send_password_reset_email(username, password_reset_link) 
+
+        # notify admin with email status, username and link
+        slack_message = f'hey, i saw that "{username}" wanted to reset their password. Could you give them this link? "{password_reset_link}"'
+        slack_message += " | Email Status: "
+        slack_message += "Sent" if sent_email_success else f"{response}"
+
+        sent_slack_message, response = self.send_slack_notification(slack_message)
         
         if not sent_slack_message:
             error_message = f'Unable to notify Bob about password reset for user "{username}"'
             self.logger.critical(error_message)  
             return False, "unable to send notification"
-            
+        
+        # logging
         success_message = f'Successfully completed password reset for user "{username}" and notified Bob'
         self.logger.info(success_message) 
         return True, success_message
