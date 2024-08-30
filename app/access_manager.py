@@ -496,6 +496,12 @@ Otherwise, please click this link to change your password: {password_reset_link}
         self.logger.info(f'Created setup link for user "{username}"')
         return link
     
+    def create_password_reset_link_from_auth_str(self, username:str, setup_auth_str:str) -> str:
+        #http://127.0.0.1:5500/password-reset?email=marius.bjorhei@gmail.com&token=1
+        link = f'{self.frontend_url}/password-reset?email={username}&token={setup_auth_str}'
+        self.logger.info(f'Created password reset link for user "{username}"')
+        return link
+    
     def reset_user_password(self, username:str) -> Tuple[bool, str]:
         self.logger.info(f'Starting password reset for user "{username}"')
 
@@ -515,7 +521,7 @@ Otherwise, please click this link to change your password: {password_reset_link}
             self.logger.critical(error_message)
             return False, "unable to reset user password"
 
-        password_reset_link = self.create_setup_link_from_auth_str(username, setup_auth_str)
+        password_reset_link = self.create_password_reset_link_from_auth_str(username, setup_auth_str)
 
         sent_email_success, response = self.send_password_reset_email(username, password_reset_link) 
 
