@@ -53,6 +53,13 @@ def load_user(user_id):
             return user_data['user_obj']
     return None
 
+# used to start up server before expection of soon user request
+@app.route('/ping', methods=['GET', 'POST'])
+def ping():
+    manager.logger.info("recived ping!")
+    return 'ok'
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
