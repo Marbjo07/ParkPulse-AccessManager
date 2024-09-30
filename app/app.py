@@ -32,7 +32,7 @@ if os.environ['FLASK_ENV'] == "development":
     manager = AccessManager(state_file_path='access_manager.state', 
                         backend_server_url=BACKEND_SERVER_URL, 
                         frontend_url=FRONTEND_URL, 
-                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
+                        init_log_level=logging.DEBUG if app.debug else logging.DEBUG)
     
 else:
     FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
@@ -94,7 +94,7 @@ def control_panel():
 def create_user():
     data = request.json
     username = data.get('username')
-    password = data.get('password_hash') # treat password_hash as password
+    password = data.get('passwordHash') # treat passwordHash as password
     
     success, message = manager.create_user(username, password)
     if success:
@@ -121,10 +121,10 @@ def setup_onboarding():
 def finish_onboarding():
     data = request.json
     username = data.get('username')
-    password = data.get('password_hash')
+    password = data.get('passwordHash')
     setup_auth_str = data.get('token')
 
-
+    print(data)
     success, message = manager.finish_onboarding(username, password, setup_auth_str)
     if success:
         return jsonify({"message": message}), 201
@@ -234,8 +234,8 @@ def add_user_to_group():
 def add_permission_to_group():
     data = request.json
     group_name = data.get('group_name')
-    data_type = data.get('data_type')
-    data_ids = data.get('data_ids')
+    data_type = data.get('dataType')
+    data_ids = data.get('dataIds')
 
     if "," in data_ids:
         data_ids = data_ids.split(",")
@@ -253,8 +253,8 @@ def add_permission_to_group():
 def remove_permissions_from_group():
     data = request.json
     group_name = data.get('group_name')
-    data_type = data.get('data_type')
-    data_ids = data.get('data_ids')
+    data_type = data.get('dataType')
+    data_ids = data.get('dataIds')
     
     if "," in data_ids:
         data_ids = data_ids.split(",")
@@ -283,14 +283,22 @@ def authorize_request():
 def authenticate_user():
     data = request.json
     username = data.get('username')
-    password_hash = data.get('password_hash')
+    password_hash = data.get('passwordHash')
 
-    authenticated, auth_hash, has_sword = manager.authenticate_user(username, password_hash)
+    print(data)
+
+    authenticated, auth_hash, isDev = manager.authenticate_user(username, password_hash)
+    allowed_resources = manager.list_allowed_resources_for_user(username)
 
     if not authenticated:
-        return jsonify({"authenticated": False, "has_sword":False}), 401
+        return jsonify({"authenticated": False, "isDev":False,  "allowedDataSource": []}), 401
     
-    return jsonify({"authenticated": True, "auth_hash":auth_hash, "has_sword":has_sword}), 201
+    return jsonify({"authenticated": True, "auth_hash":auth_hash, "isDev":isDev, "allowedDataSource": allowed_resources}), 201
+    body = {"authenticated": True, "isDev":isDev, "allowedDataSource": allowed_resources}
+    response = jsonify(body)
+
+    print(body)
+    return response, 200
 
 @app.route('/remove_user_from_group', methods=['POST'])
 @login_required

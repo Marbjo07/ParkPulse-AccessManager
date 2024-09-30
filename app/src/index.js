@@ -415,8 +415,8 @@ function addPermissionToGroupPopup() {
         "Add Permission to Group",
         [
             { id: "group_name", prompt: "Group" },
-            { id: "data_type", prompt: "Data Type" },
-            { id: "data_ids", prompt: "Data Ids" },
+            { id: "dataType", prompt: "Data Type" },
+            { id: "dataIds", prompt: "Data Ids" },
         ],
         () => {
             endpointHandler("/add_permissions_to_group");
@@ -444,8 +444,8 @@ function removePermissionFromGroupPopup() {
         "Remove Permission from Group",
         [
             { id: "group_name", prompt: "Group" },
-            { id: "data_type", prompt: "Data Type" },
-            { id: "data_ids", prompt: "Data Ids" },
+            { id: "dataType", prompt: "Data Type" },
+            { id: "dataIds", prompt: "Data Ids" },
         ],
         () => {
             endpointHandler("/remove_permissions_from_group");

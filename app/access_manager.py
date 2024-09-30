@@ -746,6 +746,26 @@ Otherwise, please click this link to change your password: {password_reset_link}
         self.logger.warning(success_message)
         return True, success_message
     
+    def list_allowed_resources_for_user(self, username:str) -> list[Dict]:
+        self.logger.info(f'Listing every allowed resource for user "{username}"')
+
+        if not self.user_exists(username):
+            self.logger.error(f'Tried to list resources for non-existent user "{username}"')
+            return []
+        
+        user = self.users[username]
+        allowed_resources = []
+        for group_name in user.groups:
+            if not self.group_exists(group_name):
+                self.logger.error(f'User "{username}" member of non-existent group "{group_name}"')
+                continue
+            group = self.groups[group_name]
+
+            for permission in group.permissions.items():
+                allowed_resources.append({"dataType":permission[0], "dataId": permission[1]})
+        
+        return allowed_resources
+
     @save_state_after
     def authorize_request(self, username:str, request:Tuple[str, str]) -> bool:
         data_type, data_id = request
@@ -780,7 +800,7 @@ Otherwise, please click this link to change your password: {password_reset_link}
         return False
     
     @save_state_after
-    def authenticate_user(self, username:str, password:str) -> Tuple[bool, str|None]:
+    def authenticate_user(self, username:str, password:str) -> Tuple[bool, str|None, bool]:
         
         if not self.user_exists(username):
             self.logger.warning(f'User "{username}" not found, unable to authenticate')
