@@ -1,2 +1,4 @@
 access_manager.state
+access_manager_test.state
 log.txt
+.env

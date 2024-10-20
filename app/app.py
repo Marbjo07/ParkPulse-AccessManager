@@ -2,16 +2,17 @@ from flask import Flask, redirect, url_for, request, render_template, send_file,
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 
 from access_manager import AccessManager, test_access_manager, performance_test_access_manager
-
 import os
 import sys
 import signal
 import hashlib
 import logging
+import secrets
 
 # Initialize Flask app
 app = Flask(__name__, static_folder="src", template_folder="src")
-app.secret_key = 'awadawg3r3:Q#"=)?AD(GN#"NAl)adt4""!'
+app.secret_key = secrets.token_urlsafe(32)
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 
@@ -19,32 +20,28 @@ login_manager.init_app(app)
 class User(UserMixin):
     def __init__(self, id):
         self.id = id
+
+DEFUALT_PASSWORD_HASH = "998ed4d621742d0c2d85ed84173db569afa194d4597686cae947324aa58ab4bb"
+admin_password_hash =  os.getenv("ADMIN_PASSWORD_HASH", DEFUALT_PASSWORD_HASH)
+if admin_password_hash == DEFUALT_PASSWORD_HASH:
+    print("WARNING: admin password not configured")
+
 # User data
 users = {
-    'admin': {'password_hash': 'ac9edb5a26f3a2b0a7b93529812fbbdfab0fa95cd52a6f825edfbb0cd196086b', 'user_obj': User('admin')}
+    'admin': {'password_hash': admin_password_hash, 'user_obj': User('admin')}
 }
+
+FRONTEND_URL = os.environ['FRONTEND_URL']
+BACKEND_SERVER_URL = os.environ['BACKEND_SERVER_URL']
+ACCESS_MANAGER_URL = os.environ['ACCESS_MANAGER_URL']
+
 if os.environ['FLASK_ENV'] == "development":
     app.config['PROPAGATE_EXCEPTIONS'] = True
-    FRONTEND_URL = "http://web:5000"
-    BACKEND_SERVER_URL = "http://web:5000"
-    ACCESS_MANAGER_URL = "http://localhost:5002"
-
-    manager = AccessManager(state_file_path='access_manager.state', 
+    
+manager = AccessManager(state_file_path='access_manager.state', 
                         backend_server_url=BACKEND_SERVER_URL, 
                         frontend_url=FRONTEND_URL, 
                         init_log_level=logging.DEBUG if app.debug else logging.DEBUG)
-    
-else:
-    FRONTEND_URL = "https://parkpulse-web.azurewebsites.net"
-    BACKEND_SERVER_URL = "https://parkpulse-web.azurewebsites.net/"
-    ACCESS_MANAGER_URL = os.environ['ACCESS_MANAGER_URL']
-
-    manager = AccessManager(state_file_path='access_manager.state', 
-                        backend_server_url=BACKEND_SERVER_URL, 
-                        frontend_url=FRONTEND_URL, 
-                        init_log_level=logging.INFO if app.debug else logging.DEBUG)
-
-
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -285,20 +282,13 @@ def authenticate_user():
     username = data.get('username')
     password_hash = data.get('passwordHash')
 
-    print(data)
-
     authenticated, auth_hash, isDev = manager.authenticate_user(username, password_hash)
     allowed_resources = manager.list_allowed_resources_for_user(username)
 
     if not authenticated:
         return jsonify({"authenticated": False, "isDev":False,  "allowedDataSource": []}), 401
     
-    return jsonify({"authenticated": True, "auth_hash":auth_hash, "isDev":isDev, "allowedDataSource": allowed_resources}), 201
-    body = {"authenticated": True, "isDev":isDev, "allowedDataSource": allowed_resources}
-    response = jsonify(body)
-
-    print(body)
-    return response, 200
+    return jsonify({"authenticated": True, "auth_hash":auth_hash, "isDev":isDev, "allowedDataSource": allowed_resources}), 200
 
 @app.route('/remove_user_from_group', methods=['POST'])
 @login_required
@@ -322,36 +312,6 @@ def delete_group():
         return jsonify({"message": message}), 201
     else:
         return jsonify({"error": message}), 400
-
-@app.route('/run_manager_test')
-@login_required
-def run_tests():
-    debug = request.args.get("debug")=="True"
-    if debug:
-        manager.logger.warning(f'---------------- starting test ----------------')
-    output = test_access_manager(debug)
-    if debug:    
-        manager.logger.warning(f'---------------- test complete ----------------')
-    return output
-
-running_perf_tests = False
-@app.route('/run_perf_tests')
-@login_required
-def run_perf_tests():
-    global running_perf_tests
-    if running_perf_tests:
-        return jsonify({"error":"Wait until previous performance test is done!"}), 429
-    else:
-        running_perf_tests = True
-
-    debug = request.args.get("debug")=="True"
-    if debug:
-        manager.logger.warning(f'---------------- starting test ----------------')
-    output = performance_test_access_manager(debug)
-    if debug:    
-        manager.logger.warning(f'---------------- test complete ----------------')
-    running_perf_tests = False
-    return output
 
 
 def handle_sigterm(*args):

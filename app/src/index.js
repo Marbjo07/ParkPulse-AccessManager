@@ -307,19 +307,21 @@ function createUserPopup() {
         [
             { id: "username", prompt: "Username" },
             { id: "password", prompt: "Password" },
-            { id: "password_hash", prompt: "Password Hash" },
+            { id: "passwordHash", prompt: "Password Hash" },
         ],
         async () => {
             let fields = readFormFields();
             removePopup();
 
-            if (fields.password != "" && fields.password_hash != "") {
+            console.log(fields);
+
+            if (fields.password != "" && fields.passwordHash != '') {
                 alert("Bro only one at a time");
                 return;
             }
 
             if (fields.password != "") {
-                fields.password_hash = await sha256(fields.password)
+                fields.passwordHash = await sha256(fields.password)
             }
 
             if (fields.password == "" && fields.password == "") {
