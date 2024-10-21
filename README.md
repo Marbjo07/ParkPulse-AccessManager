@@ -5,7 +5,7 @@
 
 <br/>
 
-ParkPulse AccessManager is a open-source user authentication and authorization service.
+Access Manager is a open-source user authentication and authorization service.
 
 ## Features
 
@@ -43,7 +43,7 @@ cd ParkPulse-AccessManager
 ``` shell
 USE_AZURE_STORAGE="False"
 FLASK_ENV=development
-ACCESS_MANAGER_URL="http://localhost:5000"
+ACCESS_MANAGER_URL=http://localhost:5000
 BACKEND_SERVER_URL=""
 FRONTEND_URL=""
 ```
@@ -66,19 +66,22 @@ Visit [http://localhost:5000/login](http://localhost:5000/login) in your browser
 
 ### 6. Create an example user
 
-Hover over **Function Menu**, click **Create User** and fillout `Username` and either `Password` or `Password Hash`
+Hover over **Function Menu**, click **Create User**. Set `Username` to **"example"** and `Password` to **"password"**, leave `Password Hash` empty.
 
 ### 7. Test user login
 
 Use console in dev tools (Ctrl + Shift + i)
 
 ``` js
-let data = {username: ..., passwordHash: ... (sha256 of password)};
+let password_hash = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"; // sha256 of "password"
+let data = {username: "example", passwordHash: password_hash};
 
 fetch("/authenticate_user", {
   method: "POST", 
   headers: {"Content-type": "application/json;"},
   body: JSON.stringify(data)
+}).then(res => {
+    return res.json();
 }).then(res => {
   console.log("Request complete! response:", res);
 });
@@ -86,7 +89,7 @@ fetch("/authenticate_user", {
 
 ## Usage
 
-**Note**: username must be the email of the user
+**Note**: username must be the email of the user for email functionality
 
 1. On user login simply pass passwordHash and username to `/authenticate_user` and read **"authenticate"** from the json response. Save **"auth_hash"** for authentication when `/disable_user_session` is called.
 
@@ -178,6 +181,10 @@ If you'd like to contribute, please fork the repository and make any changes you
   <img src="https://contrib.rocks/image?repo=Marbjo07/ParkPulse-AccessManager"/>
 </a>
 
+
+### Contact
+
+Feel free to contact me via email at [marius.bjorhei@gmail.com](marius.bjorhei@gmail.com).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
